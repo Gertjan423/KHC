@@ -906,7 +906,7 @@ elabInsDecl theory (InsD ins_ctx cls typat method method_tm) = do
   ann_ins_ctx <- snd <$> annotateCts ins_ctx
 
   --  The local program theory
-  let local_theory = theory `ftExtendLocal` ann_ins_ctx `ftExtendLocal` singletonSnocList ins_scheme
+  let local_theory = theory `ftExtendLocal` ann_ins_ctx
 
   -- The extended program theory
   let ext_theory = theory `ftExtendInst` singletonSnocList ins_scheme
@@ -918,9 +918,10 @@ elabInsDecl theory (InsD ins_ctx cls typat method method_tm) = do
     return $ fcTyAbs fc_bs $ fcTyArr fc_ins_ctx fc_head_ty
 
   -- Elaborate the method implementation
+  let local_method_theory = local_theory `ftExtendLocal` singletonSnocList ins_scheme
   fc_method_tm <- do
     expected_method_ty <- instMethodTy (hsTyPatToMonoTy typat) <$> lookupTmVarM method
-    elabTermWithSig (map labelOf bs) local_theory method_tm expected_method_ty
+    elabTermWithSig (map labelOf bs) local_method_theory method_tm expected_method_ty
 
   -- Entail the superclass constraints
   fc_super_tms <- do
