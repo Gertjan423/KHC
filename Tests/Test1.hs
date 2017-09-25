@@ -20,6 +20,16 @@ class (forall (m :: * -> *). Monad m => Monad (t m))
   lift :: forall (m :: * -> *). forall (a :: *). Monad m => m a -> t m a
 }
 
+-- | Monad instance for transformer composition
+instance (Trans t1, Trans t2, Monad m) => Monad (Comp (t1 :: (* -> *) -> (* -> *)) (t2 :: (* -> *) -> (* -> *)) (m :: (* -> *))) where {
+  bind = \cma. \f. let { g = \x. case (f x) of {
+    C ma -> ma
+  }}
+  in C (case cma of {
+    C ma -> bind ma g
+  })
+}
+
 -- | Trans instance for transformer composition
 instance (Trans t1, Trans t2) => Trans (Comp (t1 :: (* -> *) -> (* -> *)) (t2 :: (* -> *) -> (* -> *))) where {
   lift = \x. C (lift (lift x))
