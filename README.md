@@ -1,8 +1,9 @@
-# Quantified Class Constraints #
+# KU Leuven Haskell Compiler #
 
-This repository provides a prototype implementation of type inference with translation to System F of Quantified Class Constraints, as presented in the paper ``Quantified Class Constraints'' by Gert-Jan Bottu, Georgios Karachalias, Tom Schrijvers, Bruno C. d. S. Oliveira and Philip Wadler.
+This repository contains the KU Leuven Haskell Compiler, a simple Haskell compiler featuring type inference with translation to System F. 
+This work is based on the prototype implementation presented in the paper ``Quantified Class Constraints'' by Gert-Jan Bottu, Georgios Karachalias, Tom Schrijvers, Bruno C. d. S. Oliveira and Philip Wadler.
 
-**Tested with GHC 7.10.3 and GHC 8.0.2**
+**Tested with GHC 7.10.3, GHC 8.0.2 and GHC 8.4.2**
 
 ## Contents ##
 
