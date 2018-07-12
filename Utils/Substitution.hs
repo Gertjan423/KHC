@@ -150,10 +150,12 @@ instance (PrettyPrint x, PrettyPrint y) => PrettyPrint (Sub x y) where
 
   needsParens _ = False
 
+instance Semigroup (Sub x y) where
+  (<>) sub SNil          = sub
+  (<>) sub (SCons s x y) = SCons (sub <> s) x y
+
 instance Monoid (Sub x y) where
   mempty = SNil
-  mappend sub SNil          = sub
-  mappend sub (SCons s x y) = SCons (mappend sub s) x y
   mconcat = foldl mappend SNil -- foldl since mappend does induction on the second argument
 
 instance Subst (Sub x y) x y where
