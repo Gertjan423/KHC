@@ -48,5 +48,5 @@ Apart from running the test files in directory `Tests`, you can also create and 
 
 The above are illustrated in the existing tests in directory `Tests`. Since this is a proof-of-concept implementation, we do not perform kind inference, hence the above requirements (the implementation still performs kind *checking* though).
 
-If you have any inquiries concerning the implementation please do not hesitate to [contact us](mailto:georgios.karachalias@cs.kuleuven.be).
+If you have any inquiries concerning the implementation please do not hesitate to [contact us](mailto:gertjan.bottu@kuleuven.be).
 
