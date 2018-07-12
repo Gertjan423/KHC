@@ -9,10 +9,9 @@ module Utils.Ctx
 , extendCtxM, setCtxM
 ) where
 
-import Utils.PrettyPrint hiding ((<>))
+import Utils.PrettyPrint
 import Utils.Errors
 
-import Data.Monoid
 import Control.Monad.Reader
 import Control.Monad.Except
 
@@ -36,12 +35,13 @@ instance ( PrettyPrint tm_var, PrettyPrint tm_assoc
       ctxToList (CtxConsTy ctx ty_var ty_assoc) = (ppr ty_var <+> colon <+> ppr ty_assoc) : ctxToList ctx
   needsParens _ = False
 
+instance Semigroup (Ctx tm_var tm_assoc ty_var ty_assoc) where
+  (<>) ctx CtxNil            = ctx
+  (<>) ctx (CtxConsTm c v t) = CtxConsTm (ctx <> c) v t
+  (<>) ctx (CtxConsTy c v t) = CtxConsTy (ctx <> c) v t
+
 instance Monoid (Ctx tm_var tm_assoc ty_var ty_assoc) where
   mempty = CtxNil
-
-  mappend ctx CtxNil            = ctx
-  mappend ctx (CtxConsTm c v t) = CtxConsTm (mappend ctx c) v t
-  mappend ctx (CtxConsTy c v t) = CtxConsTy (mappend ctx c) v t
 
   mconcat = foldl mappend CtxNil -- foldl since mappend does induction on the second argument
 

@@ -13,9 +13,11 @@ import Control.Arrow (second)
 
 newtype AssocList a b = AssocList (SnocList (a,b))
 
+instance Semigroup (AssocList a b) where
+  (<>) (AssocList xs) (AssocList ys) = AssocList (xs <> ys)
+
 instance Monoid (AssocList a b) where
   mempty = AssocList mempty
-  mappend (AssocList xs) (AssocList ys) = AssocList (mappend xs ys)
   mconcat = foldl mappend mempty -- foldl since mappend does induction on the second argument
 
 instance Functor (AssocList a) where

@@ -1,7 +1,8 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Utils.PrettyPrint
 ( -- All combinators I liked from PrettyPrint.HughesPJ
-  (<>), (<+>), ($$), ($+$)
+  (<+>), ($$), ($+$)
 , hcat, hsep, vcat, sep, cat, fsep, fcat
 , parens, brackets, braces, quotes, doubleQuotes
 , maybeParens, maybeBrackets, maybeBraces, maybeQuotes, maybeDoubleQuotes
@@ -30,7 +31,10 @@ import qualified Text.PrettyPrint.HughesPJ as P
 
 -- | The Doc type is just a wrapper for the Doc from Hughes and SPJ
 -- ----------------------------------------------------------------------------
-newtype Doc = D (PMode -> P.Doc)
+newtype Doc = D (PMode -> P.Doc) deriving (Monoid)
+
+instance Semigroup Doc where
+  (<>) = mappend
 
 -- | Lift stuff from Hughes & SPJ library
 -- ----------------------------------------------------------------------------
@@ -62,13 +66,12 @@ liftListOp f docs = D (\m -> f [d m | D d <- docs])
 
 -- | Binary combinators
 -- ----------------------------------------------------------------------------
-(<>), (<+>), ($$), ($+$) :: Doc -> Doc -> Doc
-(<>)  = liftBinaryOp (P.<>)
+(<+>), ($$), ($+$) :: Doc -> Doc -> Doc
 (<+>) = liftBinaryOp (P.<+>)
 ($$)  = liftBinaryOp (P.$$)
 ($+$) = liftBinaryOp (P.$+$)
 
-infixl 6 <>, <+>
+infixr 6 <+>
 infixl 5 $$, $+$
 
 -- | List combinators

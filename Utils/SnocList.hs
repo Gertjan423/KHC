@@ -40,10 +40,12 @@ instance PrettyPrint a => PrettyPrint (SnocList a) where
   ppr           = ppr . snocListToList
   needsParens _ = False
 
+instance Semigroup (SnocList a) where
+  (<>) xs SN        = xs
+  (<>) xs (ys :> y) = (<>) xs ys :> y
+
 instance Monoid (SnocList a) where
   mempty = SN
-  mappend xs SN        = xs
-  mappend xs (ys :> y) = mappend xs ys :> y
   mconcat = foldl mappend SN -- foldl since mappend does induction on the second argument
 
 instance Functor SnocList where

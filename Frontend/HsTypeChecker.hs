@@ -20,7 +20,7 @@ import Utils.AssocList
 import Utils.Annotated
 import Utils.Ctx
 import Utils.SnocList
-import Utils.PrettyPrint hiding ((<>))
+import Utils.PrettyPrint
 import Utils.Utils
 import Utils.Errors
 import Utils.Trace
@@ -316,10 +316,12 @@ runSolverFirstM (SolveM m) = firstListT m
 -- | ConstraintStore containing both the equality constraints and named class constraints
 data ConstraintStore = CS EqCs AnnCts
 
+instance Semigroup ConstraintStore where
+  (<>) (CS eqs1 ccs1) (CS eqs2 ccs2)
+    = CS (eqs1 <> eqs2) (ccs1 <> ccs2)
+
 instance Monoid ConstraintStore where
   mempty = CS mempty mempty
-  mappend (CS eqs1 ccs1) (CS eqs2 ccs2)
-    = CS (mappend eqs1 eqs2) (mappend ccs1 ccs2)
 
 -- | Type inference generation monad
 newtype GenM a = GenM (StateT ConstraintStore TcM a)
