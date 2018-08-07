@@ -236,7 +236,7 @@ pClassCtr :: PsM PsCtr
 pClassCtr = fmap CtrClsCt (ClsCt <$> pClass <*> pPrimTy)
 
 -- | Parse a class/instance context
-pCts :: PsM PsCts
+pCts :: PsM PsClCts
 pCts = parens (commaSep pCtr)
 
 -- | Parse a kind-annotated type variable (without the parentheses!!)

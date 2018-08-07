@@ -60,11 +60,9 @@ instance SubstVar RnTyVar RnMonoTy RnPolyTy where
 -- | Substitute a type variable for a type in a constraint
 instance SubstVar RnTyVar RnMonoTy RnCtr where
   substVar a ty = \case
-    CtrClsCt ct     -> CtrClsCt (substVar a ty ct)
-    CtrImpl ct1 ct2 -> CtrImpl (substVar a ty ct1) (substVar a ty ct2)
-    CtrAbs (b :| k) ct
-      | a == b      -> error "substTyVarInCtr: Shadowing"
-      | otherwise   -> CtrAbs (b :| k) (substVar a ty ct)
+    Ctr as cs ct
+      | elem a (map labelOf as) -> error "substTyVarInCtr: Shadowing"
+      | otherwise -> Ctr as (map (substVar a ty) cs) ct
 
 -- * Target Language SubstVar Instances (Type Substitution)
 -- ------------------------------------------------------------------------------
@@ -307,10 +305,11 @@ instance FreshenLclBndrs RnPolyTy where
 
 -- | Freshen the (type) binders of a constraint
 instance FreshenLclBndrs RnCtr where
-  freshenLclBndrs (CtrClsCt ct)        = return (CtrClsCt ct)
-  freshenLclBndrs (CtrImpl ct1 ct2)    = CtrImpl <$> freshenLclBndrs ct1 <*> freshenLclBndrs ct2
-  freshenLclBndrs (CtrAbs (a :| _) ct) = freshRnTyVar (kindOf a) >>= \b ->
-    CtrAbs (b :| kindOf b) <$> freshenLclBndrs (substVar a (TyVar b) ct)
+  freshenLclBndrs (Ctr []     cs ct) = return (Ctr [] cs ct)
+  freshenLclBndrs (Ctr ((a :| _):as) cs ct) = do
+    b                <- freshRnTyVar (kindOf a)
+    (Ctr bs cs' ct') <- freshenLclBndrs (substVar a (TyVar b) $ Ctr as cs ct)
+    return (Ctr ((b :| kindOf b) : bs) cs' ct')
 
 -- | Freshen the (type) binders of a System F type
 instance FreshenLclBndrs FcType where

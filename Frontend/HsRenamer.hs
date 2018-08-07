@@ -147,16 +147,15 @@ rnMonoTy (TyVar psa)     = TyVar <$> lookupTyVarM psa
 -- | Rename a qualified type
 rnQualTy :: PsQualTy -> RnM RnQualTy
 rnQualTy (QMono ty)    = QMono <$> rnMonoTy ty
-rnQualTy (QQual ct ty) = QQual <$> rnCtr ct <*> rnQualTy ty
+rnQualTy (QQual ct ty) = QQual <$> rnClsCt ct <*> rnQualTy ty
 
 -- | Rename a constraint
-rnCtr :: PsCtr -> RnM RnCtr
-rnCtr (CtrClsCt cls_ct) = CtrClsCt <$> rnClsCt cls_ct
-rnCtr (CtrImpl c1 c2)   = CtrImpl <$> (rnCtr c1) <*> (rnCtr c2)
-rnCtr (CtrAbs a ct)     = do
-  rna  <- rnTyVar a
-  rnct <- extendCtxTyM (labelOf a) rna (rnCtr ct)
-  return (CtrAbs (rna :| kindOf rna) rnct)
+-- rnCtr :: PsCtr -> RnM RnCtr
+-- rnCtr (Ctr [] cs ct)      = Ctr <$> (return []) <*> (mapM rnClsCt cs) <*> (rnClsCt ct)
+-- rnCtr (Ctr (a:as) cs ct) = do
+--   rna               <- rnTyVar a
+--   (Ctr as' cs' ct') <- extendCtxTyM (labelOf a) rna (rnCtr $ Ctr as cs ct)
+--   return (Ctr ((rna :| kindOf rna) : as') cs' ct')
 
 -- | Rename a class constraint
 rnClsCt :: PsClsCt -> RnM RnClsCt
@@ -252,7 +251,7 @@ rnClsDecl (ClsD cs cls a method method_ty) = do
   rn_a <- rnTyVar a
 
   -- Rename the superclass constraints
-  rn_cs <- extendCtxTyM (labelOf a) rn_a (mapM rnCtr cs)
+  rn_cs <- extendCtxTyM (labelOf a) rn_a (mapM rnClsCt cs)
 
   -- Rename the method type
   rn_method_ty <- extendCtxTyM (labelOf a) rn_a (rnPolyTy method_ty)
@@ -271,7 +270,7 @@ rnInsDecl (InsD cs cls_name ty_pat method_name method_tm) = do
   tyvars <- mapM rnTyVar (ftyvsOf ty_pat) -- collect and rename all bound variables
 
   (rn_ty_pat, bv) <- extendKindedVarsCtxM tyvars (rnTyPat ty_pat) -- rename the type pattern
-  rn_cs           <- extendKindedVarsCtxM bv (mapM rnCtr cs)  -- rename the instance context
+  rn_cs           <- extendKindedVarsCtxM bv (mapM rnClsCt cs)  -- rename the instance context
   rn_method_name  <- lookupMethodName method_name             -- rename the method name
 
   -- Ensure the method name is for the class we are checking
