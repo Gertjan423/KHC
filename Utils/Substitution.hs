@@ -225,6 +225,10 @@ substInTyVars subst = map (substInTyVar subst)
 substInProgramTheory :: HsTySubst -> ProgramTheory -> ProgramTheory
 substInProgramTheory subst = fmap (\(d :| ct) -> (d :| substInCtr subst ct))
 
+-- | Apply a type substitution to a simple program theory
+substInSimpleProgramTheory :: HsTySubst -> SimpleProgramTheory -> SimpleProgramTheory
+substInSimpleProgramTheory subst = fmap (\(d :| ct) -> (d :| substInClsCt subst ct))
+
 -- | Apply a type substitution to a qualified type
 substInQualTy :: HsTySubst -> RnQualTy -> RnQualTy
 substInQualTy = sub_rec

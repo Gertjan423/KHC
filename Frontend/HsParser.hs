@@ -127,7 +127,7 @@ pProgram  =  PgmCls  <$> pClsDecl  <*> pProgram
 pClsDecl :: PsM PsClsDecl
 pClsDecl  =  (\ctx cls a (m,ty) -> ClsD ctx cls a m ty)
          <$  reserved "class"
-         <*> pCts
+         <*> pClsCs
          <*  reservedOp "=>"
          <*> pClass
          <*> parens pTyVarWithKind
@@ -138,7 +138,7 @@ pClsDecl  =  (\ctx cls a (m,ty) -> ClsD ctx cls a m ty)
 pInstDecl :: PsM PsInsDecl
 pInstDecl  =  (\ctx cls ty (m,tm) -> InsD ctx cls ty m tm)
           <$  reserved "instance"
-          <*> pCts
+          <*> pClsCs
           <*  reservedOp "=>"
           <*> pClass
           <*> pPrimTyPat
@@ -188,7 +188,7 @@ pPolyTy  =  PPoly <$  reserved "forall" <*> parens pTyVarWithKind <* dot <*> pPo
 
 -- | Parse a qualified type
 pQualTy :: PsM PsQualTy
-pQualTy  =  try (QQual <$> pPrimCtr <* reservedOp "=>" <*> pQualTy)
+pQualTy  =  try (QQual <$> pClsCt <* reservedOp "=>" <*> pQualTy)
         <|> QMono <$> pMonoTy
 
 -- | Parse a primitive monotype
@@ -214,30 +214,34 @@ pKind :: PsM Kind
 pKind  =  chainr1 (parens pKind <|> (KStar <$ symbol "*")) (KArr <$ reservedOp "->")
       <?> "a kind"
 
--- | Parse a primitive constraint
-pPrimCtr :: PsM PsCtr
-pPrimCtr = parens pCtr <|> pClassCtr
+-- -- | Parse a primitive constraint
+-- pPrimCtr :: PsM PsCtr
+-- pPrimCtr = parens pCtr <|> pClassCtr
 
--- | Parse a constraint
-pImplCtr :: PsM PsCtr
-pImplCtr = chainr1 pPrimCtr (CtrImpl <$ reservedOp "=>")
+-- -- | Parse a constraint
+-- pImplCtr :: PsM PsCtr
+-- pImplCtr = chainr1 pPrimCtr (CtrImpl <$ reservedOp "=>")
 
--- | Parse a forall constraint
-pCtr :: PsM PsCtr
-pCtr  =  CtrAbs
-         <$  reserved "forall"
-         <*> parens pTyVarWithKind
-         <*  dot
-         <*> pCtr
-     <|> pImplCtr
+-- -- | Parse a forall constraint
+-- pCtr :: PsM PsCtr
+-- pCtr  =  CtrAbs
+--          <$  reserved "forall"
+--          <*> parens pTyVarWithKind
+--          <*  dot
+--          <*> pCtr
+--      <|> pImplCtr
+
+-- -- | Parse a class constraint
+-- pClassCtr :: PsM PsCtr
+-- pClassCtr = fmap CtrClsCt (ClsCt <$> pClass <*> pPrimTy)
 
 -- | Parse a class constraint
-pClassCtr :: PsM PsCtr
-pClassCtr = fmap CtrClsCt (ClsCt <$> pClass <*> pPrimTy)
+pClsCt :: PsM PsClsCt
+pClsCt = ClsCt <$> pClass <*> pPrimTy
 
 -- | Parse a class/instance context
-pCts :: PsM PsClCts
-pCts = parens (commaSep pCtr)
+pClsCs :: PsM PsClsCs
+pClsCs = parens (commaSep pClsCt)
 
 -- | Parse a kind-annotated type variable (without the parentheses!!)
 pTyVarWithKind :: PsM PsTyVarWithKind
