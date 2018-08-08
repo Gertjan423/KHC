@@ -696,7 +696,7 @@ elabClsDecl (ClsD rn_cs cls (a :| _) method method_ty) = do
     let cls_head  = ClsCt cls (TyVar a) -- TC a
     fc_cls_head <- elabClsCt cls_head   -- T_TC a
 
-    let scheme = constructCtr ([a :| kindOf a], [sc_ct], cls_head) -- forall a. TC a => SC
+    let scheme = constructCtr ([a :| kindOf a], [cls_head], sc_ct) -- forall a. TC a => SC
     fc_scheme <- elabCtr scheme                                    -- forall a. T_TC a -> upsilon_SC
 
     xs <- replicateM (length rn_cs + 1) freshFcTmVar               -- n+1 fresh variables
