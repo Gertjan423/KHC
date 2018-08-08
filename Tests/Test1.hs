@@ -1,38 +1,25 @@
 
--- * MonadTrans Example
+-- * Simple example with superclasses
 -- ----------------------------------------------------------------------------
 
--- | Transformer composition:
---     newtype (t1 * t2) m a = C { runC :: t1 (t2 m) a }
-data Comp (t1 :: (* -> *) -> * -> *)
-          (t2 :: (* -> *) -> * -> *)
-          (m  :: * -> *) (a :: *)
-  = C (t1 (t2 m) a)
+data Bool = True | False
 
--- | Simplified Monad class
-class () => Monad (m :: * -> *) where {
-  bind :: forall (a :: *). forall (b :: *). m a -> (a -> m b) -> m b
+class () => Eq (a :: *) where {
+  equals :: a -> a -> Bool
 }
 
--- | The MonadTrans class with Quantified Class Constraints
-class (forall (m :: * -> *). Monad m => Monad (t m))
-    => Trans (t :: (* -> *) -> (* -> *)) where {
-  lift :: forall (m :: * -> *). forall (a :: *). Monad m => m a -> t m a
+class (Eq a) => Ord (a :: *) where {
+  compare :: a -> a -> Bool
 }
 
--- | Monad instance for transformer composition
-instance (Trans t1, Trans t2, Monad m) => Monad (Comp (t1 :: (* -> *) -> (* -> *)) (t2 :: (* -> *) -> (* -> *)) (m :: (* -> *))) where {
-  bind = \cma. \f. let { g = \x. case (f x) of {
-    C ma -> ma
-  }}
-  in C (case cma of {
-    C ma -> bind ma g
-  })
-}
-
--- | Trans instance for transformer composition
-instance (Trans t1, Trans t2) => Trans (Comp (t1 :: (* -> *) -> (* -> *)) (t2 :: (* -> *) -> (* -> *))) where {
-  lift = \x. C (lift (lift x))
+instance () => Eq Bool where {
+  equals = \x. \y. case x of
+      { True -> case y of
+          { True -> True
+          ; False -> False }
+      ; False -> case y of
+          { True -> False
+          ; False -> True } }
 }
 
 -- | Program expression
