@@ -29,14 +29,14 @@ You can try out the prototype in two ways: build it as a cabal package and try t
 The easiest way to try out the prototype in examples is by loading it in GHCi. For example:
 
     :load Main.hs
-    runTest "Tests/Test2.hs"
+    runTest "Tests/Test1.hs"
 
 ### Build an executable ###
 
 Since the implementation is also a cabal package you can also build an executable instead:
 
     cabal build
-    ./dist/build/quantcs/quantcs Tests/Test2.hs
+    ./dist/build/quantcs/quantcs Tests/Test1.hs
 
 ## Adding Tests ##
 
