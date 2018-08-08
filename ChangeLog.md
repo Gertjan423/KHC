@@ -1,4 +1,4 @@
-# Revision history for quantcs
+# Revision history for khc
 
 ## 0.1.0.0  -- YYYY-mm-dd
 
