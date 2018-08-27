@@ -196,6 +196,9 @@ arrowTyConName = mkName arrowTyConSym arrowTyConUnique
 mkPsArrowTy :: PsMonoTy -> PsMonoTy -> PsMonoTy
 mkPsArrowTy ty1 ty2 = TyApp (TyApp (TyCon psArrowTyCon) ty1) ty2
 
+mkPsArrowTyPat :: PsTyPat -> PsTyPat -> PsTyPat
+mkPsArrowTyPat ty1 ty2 = HsTyAppPat (HsTyAppPat (HsTyConPat psArrowTyCon) ty1) ty2
+
 psArrowTyCon :: PsTyCon
 psArrowTyCon = HsTC arrowTyConSym
 
