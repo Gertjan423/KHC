@@ -43,7 +43,6 @@ Since the implementation is also a cabal package you can also build an executabl
 
 This is still an early version, so several improvements are planned for the near future:
 
-* Improve the simple included parser.
 * Include a System F evaluator, for executing programs.
 * Write additional test files.
 * Perform kind inference (the compiler currently only performs kind checking).
