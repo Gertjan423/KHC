@@ -33,7 +33,7 @@ executable khc
     Rank2Types,
     DataKinds,
     TypeFamilies
-  build-depends:       base >=4.8
+  build-depends:       base >=4.11
                      , mtl >=2.2
                      , pretty >=1.1
                      , megaparsec >= 7.0.0
