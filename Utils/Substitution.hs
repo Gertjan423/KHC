@@ -62,7 +62,7 @@ instance SubstVar RnTyVar RnMonoTy RnCtr where
   substVar a ty = \case
     Ctr as cs ct
       | elem a (map labelOf as) -> error "substTyVarInCtr: Shadowing"
-      | otherwise -> Ctr as (map (substVar a ty) cs) ct
+      | otherwise -> Ctr as (map (substVar a ty) cs) (substVar a ty ct)
 
 -- * Target Language SubstVar Instances (Type Substitution)
 -- ------------------------------------------------------------------------------
