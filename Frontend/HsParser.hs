@@ -10,6 +10,7 @@ import Utils.Annotated (Ann((:|)))
 -- | Utilities
 import Control.Applicative (Alternative, liftA2, (<**>))
 import Data.Functor (($>))
+import Data.Void (Void)
 import Control.Monad.Reader
 
 -- Lexer
@@ -22,14 +23,14 @@ import Text.Megaparsec.Char
 -- * The Parsing Monad
 -- ------------------------------------------------------------------------------
 
-type PsM = ReaderT SpaceConsumer (Parsec (ErrorItem Char) String)
+type PsM = ReaderT SpaceConsumer (Parsec Void String)
 newtype SpaceConsumer = SC (PsM ())
 
 -- | Parse a complete program from a file
 hsParse :: FilePath -> IO (Either String PsProgram)
 hsParse path = readFile path >>= \contents ->
   return $ case parse (runReaderT parser (SC sc)) path contents of
-    Left err -> Left (parseErrorPretty' contents err)
+    Left err -> Left (errorBundlePretty err)
     Right p  -> Right p
   where
     parser = sc *> pProgram <* eof
