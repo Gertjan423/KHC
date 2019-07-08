@@ -1,11 +1,12 @@
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE KindSignatures       #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE KindSignatures        #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module Backend.FcTypes where
 
@@ -14,9 +15,11 @@ import Utils.Var
 import Utils.Kind
 import Utils.PrettyPrint
 import Utils.Annotated
+import Utils.FreeVars
 
 import Data.Maybe (isJust)
 import Data.Function (on)
+import Data.List ((\\))
 
 -- * Arrow Type Constructor
 -- ----------------------------------------------------------------------------
@@ -222,6 +225,28 @@ data FcValBind = FcValBind { fval_bind_var :: FcTmVar   -- ^ Variable Name
 data FcProgram = FcPgmDataDecl FcDataDecl FcProgram     -- ^ Data Declaration
                | FcPgmValDecl  FcValBind  FcProgram     -- ^ Value Binding
                | FcPgmTerm FcTerm                       -- ^ Term
+
+-- * Collecting Free Variables Out Of Objects
+-- ------------------------------------------------------------------------------
+
+instance ContainsFreeTyVars FcType FcTyVar where
+  ftyvsOf (FcTyVar a)       = [a]
+  ftyvsOf (FcTyAbs a ty)    = ftyvsOf ty \\ [a]
+  ftyvsOf (FcTyApp ty1 ty2) = ftyvsOf ty1 ++ ftyvsOf ty2
+  ftyvsOf (FcTyCon tc)      = []
+
+instance ContainsFreeTyVars FcTerm FcTyVar where
+  ftyvsOf (FcTmAbs x ty tm)      = ftyvsOf ty ++ ftyvsOf tm
+  ftyvsOf (FcTmVar x)            = []
+  ftyvsOf (FcTmApp tm1 tm2)      = ftyvsOf tm1 ++ ftyvsOf tm2
+  ftyvsOf (FcTmTyAbs a tm)       = ftyvsOf tm \\ [a]
+  ftyvsOf (FcTmTyApp tm ty)      = ftyvsOf tm ++ ftyvsOf ty
+  ftyvsOf (FcTmDataCon dc)       = []
+  ftyvsOf (FcTmLet x ty tm1 tm2) = ftyvsOf ty ++ ftyvsOf tm1 ++ ftyvsOf tm2
+  ftyvsOf (FcTmCase tm cs)       = ftyvsOf tm ++ ftyvsOf cs
+
+instance ContainsFreeTyVars FcAlt FcTyVar where
+  ftyvsOf (FcAlt pat tm) = ftyvsOf tm
 
 -- * Pretty printing
 -- ----------------------------------------------------------------------------
