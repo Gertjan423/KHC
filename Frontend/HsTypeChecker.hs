@@ -31,7 +31,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
 import Control.Arrow (second)
-import Data.List (nub)
+import Data.List (nub, (\\))
 
 -- * Create the typechecking environment from the renaming one
 -- ------------------------------------------------------------------------------
@@ -887,12 +887,28 @@ elabTermWithSig untch theory tm poly_ty = do
 
   fc_subst <- elabHsTySubst ty_subst
 
+  -- The resulting System F term where:
+  --   for every type variable that did not get a unique solution during unification,
+  --   the variable occurs freely in the term (we refer to them as unresolved vars)
+  let refined_fc_tm = fcTmTyAbs fc_as $
+                        fcTmAbs dbinds $
+                          substFcTmInTm ev_subst $
+                            substFcTyInTm fc_subst fc_tm
+  
+  -- Unresolved vars
+  let unresolved_tyvs = nub (ftyvsOf refined_fc_tm)
+                          \\ map rnTyVarToFcTyVar untouchables
+  
+  -- Substitute unresolved vars "a" with dummy types:
+  --   as dummy types, we use the most general polymorphic type (forall a. a)
+  unresolved_subst <- do
+    new_tyvs <- mapM (freshFcTyVar . kindOf) unresolved_tyvs
+    let new_tys = map (\a -> FcTyAbs a $ FcTyVar a) new_tyvs
+    return $ foldMap (uncurry (|->)) $ zipExact unresolved_tyvs new_tys
+  
   -- Generate the resulting System F term
-  return $
-    fcTmTyAbs fc_as $
-      fcTmAbs dbinds $
-        substFcTmInTm ev_subst $
-          substFcTyInTm fc_subst fc_tm
+  return $ substFcTyInTm unresolved_subst refined_fc_tm
+  
   where
     (as,cs,ty) = destructPolyTy poly_ty
     fc_as      = map rnTyVarToFcTyVar (labelOf as)
