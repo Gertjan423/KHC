@@ -56,12 +56,12 @@ fcEvalTmStep (FcTmCase scr alts) = do
       case tm of
         Just tm' -> return $ Just $ FcTmCase tm' alts
         Nothing  -> undefined
-fcEvalTmStep (FcTmAbs _ _ _)   = return Nothing
-fcEvalTmStep (FcTmTyAbs _ _)   = return Nothing
 fcEvalTmStep (FcTmVar x) = lookupVbM x >>= \case
   Just (tm, ty) -> return $ Just tm
-  Nothing -> error "Unbound variable"
-fcEvalTmStep (FcTmDataCon _) = return Nothing
+  Nothing -> error "Encountered unbound variable during execution"
+fcEvalTmStep (FcTmAbs _ _ _)   = return Nothing
+fcEvalTmStep (FcTmTyAbs _ _)   = return Nothing
+fcEvalTmStep (FcTmDataCon _)   = return Nothing
 
 fcEvalTm :: FcTerm -> FcEM (FcTerm)
 fcEvalTm tm = fcEvalTmStep tm >>= \case
