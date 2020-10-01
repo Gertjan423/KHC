@@ -6,6 +6,7 @@ import Frontend.HsParser      (hsParse)
 import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
 import Backend.FcTypeChecker  (fcTypeCheck)
+import Backend.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
 import Utils.PrettyPrint
@@ -31,18 +32,22 @@ runTest file = do
         (Right (((rn_pgm, _rn_ctx), us1), rn_env), _) ->
           case hsElaborate rn_env us1 rn_pgm of
             (Left err,_) -> throwMainError "typechecker" err
-            (Right ((((fc_pgm, tc_ty, theory), envs), us2), _tc_env), _) ->
+            (Right ((((fc_pgm, tc_ty, theory), envs), us2), _tc_env), _) -> do
+              putStrLn "---------------------------- Elaborated Program ---------------------------"
+              putStrLn $ renderWithColor $ ppr fc_pgm
+              putStrLn "------------------------------- Program Type ------------------------------"
+              putStrLn $ renderWithColor $ ppr tc_ty
+              putStrLn "------------------------------ Program Theory -----------------------------"
+              putStrLn $ renderWithColor $ ppr theory
               case fcTypeCheck envs us2 fc_pgm of
                 (Left err,_) -> throwMainError "System F typechecker" err
-                (Right ((fc_ty, _us3), _fc_env), _trace) -> do
-                  putStrLn "---------------------------- Elaborated Program ---------------------------"
-                  putStrLn $ renderWithColor $ ppr fc_pgm
-                  putStrLn "------------------------------- Program Type ------------------------------"
-                  putStrLn $ renderWithColor $ ppr tc_ty
-                  putStrLn "------------------------------ Program Theory -----------------------------"
-                  putStrLn $ renderWithColor $ ppr theory
+                (Right ((fc_ty, us3), _fc_env), _trace) -> do
                   putStrLn "-------------------------- System F Program Type --------------------------"
                   putStrLn $ renderWithColor $ ppr fc_ty
+                  let res = fcEvaluate us3 fc_pgm
+                  putStrLn "-------------------------- System F Result --------------------------------"
+                  putStrLn $ renderWithColor $ ppr res
+
   where
     throwMainError phase e
       | label <- colorDoc red (text phase <+> text "failure")
