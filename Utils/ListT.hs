@@ -4,6 +4,7 @@
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE CPP                   #-}
 
 -- The following code is a replica of the module Control.Monad.Logic:
 
@@ -41,6 +42,8 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Data.List
 
+import qualified Control.Monad.Fail as Fail
+
 -- | A monad transformer for performing backtracking computations
 newtype ListT m a =
     ListT { unListT :: forall r. (a -> m r -> m r) -> m r -> m r }
@@ -71,12 +74,12 @@ firstMatch list = runListT list goM (pure Nothing) >>= \case
 -- | Extract the first result from a ListT computation
 
 firstListT :: Monad m => ListT m a -> m a
-firstListT lt = unListT lt (const . return) (fail "firstListT: No answer")
+firstListT lt = unListT lt (const . return) (error "firstListT: No answer")
 
 -- -------------------------------------------------------------------------
 -- | Extract the first result from a ListT computation that satisfies a predicate
 
-firstSuchThatListT :: Monad m => (a -> Bool) -> ListT m a -> m a
+firstSuchThatListT :: MonadFail m => (a -> Bool) -> ListT m a -> m a
 firstSuchThatListT p m = do
   xs <- filter p <$> unListT m (liftM . (:)) (return [])
   case uncons xs of
@@ -102,11 +105,16 @@ instance Alternative (ListT f) where
 
 instance Monad (ListT m) where
     m >>= f = ListT $ \sk fk -> unListT m (\a fk' -> unListT (f a) sk fk') fk
-    fail _ = ListT $ \_ fk -> fk
+#if !MIN_VERSION_base(4,11,0)
+    fail _ = Fail.fail
+#endif
 
 instance MonadPlus (ListT m) where
-    mzero = ListT $ \_ fk -> fk
+    mzero = Control.Applicative.empty
     m1 `mplus` m2 = ListT $ \sk fk -> unListT m1 sk (unListT m2 sk fk)
+
+instance MonadFail (ListT m) where
+    fail _ = mzero
 
 instance MonadTrans ListT where
   lift m = ListT $ \sk fk -> m >>= \a -> sk a fk

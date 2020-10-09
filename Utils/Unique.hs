@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE CPP                   #-}
 
 -- ----------------------------------------------------------------------------
 -- |
@@ -67,6 +68,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Writer
+import qualified Control.Monad.Fail as Fail
 
 -- ----------------------------------------------------------------------------
 --                            Arrow TyCon Unique
@@ -268,6 +270,12 @@ instance Monad m => Monad (UniqueSupplyT m) where
   {-# INLINE return #-}
   UST m >>= f = UST (\us0 -> m us0 >>= \(x,us1) -> unUST (f x) us1)
   {-# INLINE (>>=) #-}
+#if !MIN_VERSION_base(4,11,0)
+  fail str = UST (\_ -> fail str)
+  {-# INLINE fail #-}
+#endif
+
+instance MonadFail m => MonadFail (UniqueSupplyT m) where
   fail str = UST (\_ -> fail str)
   {-# INLINE fail #-}
 

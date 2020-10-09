@@ -4,7 +4,7 @@ This repository contains the KU Leuven Haskell Compiler, a simple Haskell compil
 The compiler is constructed at KU Leuven, under the programming languages group of [prof Tom Schrijvers](https://people.cs.kuleuven.be/~tom.schrijvers/), to serve as a basis for implementing and testing new compiler features.
 This work is based on the following [prototype implementation](https://github.com/gkaracha/quantcs-impl).
 
-**Tested with GHC 8.4.3**
+**Tested with GHC 8.10.2**
 
 ## Implementation ##
 
