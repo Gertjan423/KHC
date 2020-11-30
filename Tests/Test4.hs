@@ -40,4 +40,4 @@ instance Fib Nat where
                             Zero -> one
                             Succ n'' -> add (fib n') (fib n'')
 
-fib (Succ (Succ (Succ (Succ Zero))))
+(fib (Succ (Succ (Succ (Succ Zero)))))

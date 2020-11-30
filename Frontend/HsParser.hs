@@ -117,6 +117,7 @@ pProgram :: PsM PsProgram
 pProgram  =  PgmCls  <$> pClsDecl  <*> pProgram
          <|> PgmInst <$> pInstDecl <*> pProgram
          <|> PgmData <$> pDataDecl <*> pProgram
+         <|> PgmFunc <$> pFuncDecl <*> pProgram
          <|> PgmExp  <$> pTerm
 
 -- | Parse a class declaration
@@ -147,6 +148,15 @@ pDataDecl  =  indent $ DataD
           <*> many (parens pTyVarWithKind)
           <*  symbol "="
           <*> sepBy1 (pDataCon <&> many pPrimTy) (symbol "|")
+
+-- | Parse a function declaration
+pFuncDecl :: PsM PsFuncDecl
+pFuncDecl  =  indent $ FuncD
+          <$> pTmVar
+          <*  symbol "::"
+          <*> pPolyTy
+          <*  symbol "="
+          <*> pTerm
 
 -- * Parse all kinds of names
 -- ------------------------------------------------------------------------------

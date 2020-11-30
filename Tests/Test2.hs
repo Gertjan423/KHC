@@ -49,4 +49,4 @@ instance Applicative Maybe where
                           Nothing -> Nothing)
 
 -- | Program expression
-method
+(method)

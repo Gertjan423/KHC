@@ -320,6 +320,7 @@ data Program a = PgmExp  (Term a)                 -- ^ Expression
                | PgmCls  (ClsDecl  a) (Program a) -- ^ Class declaration
                | PgmInst (InsDecl  a) (Program a) -- ^ Instance declaration
                | PgmData (DataDecl a) (Program a) -- ^ Datatype declaration
+               | PgmFunc (FuncDecl a) (Program a) -- ^ Function declaration
 
 -- | Class declaration
 data ClsDecl a = ClsD { csuper :: ClsCs a           -- ^ Superclass constraints
@@ -340,6 +341,11 @@ data DataDecl a = DataD { dtycon    :: HsTyCon a                     -- ^ Type c
                         , dtyvars   :: [HsTyVarWithKind a]           -- ^ Universal type variables
                         , ddatacons :: [(HsDataCon a, [MonoTy a])] } -- ^ Data constructors
 
+-- | Function Declaration
+data FuncDecl a = FuncD { fdefna :: HsTmVar a      -- ^ Function name
+                        , fdefty :: PolyTy a       -- ^ Function type
+                        , fdeftm :: Term a }       -- ^ Function term
+
 -- | Parsed/renamed programs
 type PsProgram = Program Sym
 type RnProgram = Program Name
@@ -355,6 +361,10 @@ type RnInsDecl = InsDecl Name
 -- | Parsed/renamed datatype declarations
 type PsDataDecl = DataDecl Sym
 type RnDataDecl = DataDecl Name
+
+-- | Parsed/renamed function declarations
+type PsFuncDecl = FuncDecl Sym
+type RnFuncDecl = FuncDecl Name
 
 -- * Additional Syntax For Type Inference And Elaboration
 -- ------------------------------------------------------------------------------
@@ -621,6 +631,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Program a) where
   ppr (PgmCls  cdecl pgm) = ppr cdecl $$ ppr pgm
   ppr (PgmInst idecl pgm) = ppr idecl $$ ppr pgm
   ppr (PgmData ddecl pgm) = ppr ddecl $$ ppr pgm
+  ppr (PgmFunc fdecl pgm) = ppr fdecl $$ ppr pgm
 
   needsParens _ = False
 
@@ -656,6 +667,11 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (DataDecl a) where
         []               -> []
         ((dc, tys):rest) -> hsep (colorDoc yellow (char '=') : ppr dc : map pprPar tys) : map ppr_dc rest
 
+  needsParens _ = False
+
+-- | Pretty print function declarations
+instance (Symable a, PrettyPrint a) => PrettyPrint (FuncDecl a) where
+  ppr (FuncD n ty tm) = hsep [colorDoc blue (ppr n), text "::", ppr ty, ppr tm]
   needsParens _ = False
 
 -- | Pretty print equality constraints

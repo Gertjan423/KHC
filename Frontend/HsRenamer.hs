@@ -113,6 +113,12 @@ lookupMethodName x = ask >>= \ctx -> case lookupTmVarCtx ctx x of
   Just rnx -> return rnx
   Nothing  -> throwErrorRnM (text "Method name" <+> ppr x <+> text "unbound")
 
+-- | Rename a function name. It has to be unbound
+rnFunctionName :: PsTmVar -> RnM RnTmVar
+rnFunctionName x = ask >>= \ctx -> case lookupTmVarCtx ctx x of
+  Just {} -> throwErrorRnM (text "Function name" <+> ppr x <+> text "already bound")
+  Nothing -> rnTmVar x
+
 -- * Rename Types
 -- ------------------------------------------------------------------------------
 
@@ -327,6 +333,24 @@ rnDataDecl (DataD tc as dcs) = do
 
   return (DataD rntc (rnas |: map kindOf rnas) rndcs)
 
+-- | Rename a function declaration
+rnFuncDecl :: PsFuncDecl -> RnM (RnFuncDecl, RnCtx)
+rnFuncDecl (FuncD func func_ty func_tm) = do
+  -- Rename the function name
+  rn_func <- rnFunctionName func
+
+  -- Rename the function type
+  rn_func_ty <- rnPolyTy func_ty
+
+  -- Rename the function Term
+  rn_func_tm <- extendCtxTmM func rn_func (rnTerm func_tm)
+
+  -- Get the current typing environment (to be extended by new function binding)
+  rn_ctx <- ask
+
+  return ( FuncD rn_func rn_func_ty rn_func_tm
+         , extendCtxTm rn_ctx func rn_func)
+
 -- | Rename a program
 rnProgram :: PsProgram -> RnM (RnProgram, RnCtx)
 rnProgram (PgmExp tm) = do
@@ -345,6 +369,10 @@ rnProgram (PgmData data_decl pgm) = do
   rn_data_decl <- rnDataDecl data_decl
   (rn_pgm, rn_ctx) <- rnProgram pgm
   return (PgmData rn_data_decl rn_pgm, rn_ctx)
+rnProgram (PgmFunc func_decl pgm) = do
+  (rn_func_decl, ext_ctx) <- rnFuncDecl func_decl
+  (rn_pgm, rn_ctx)        <- local (\_ -> ext_ctx) $ rnProgram pgm
+  return (PgmFunc rn_func_decl rn_pgm, rn_ctx)
 
 -- * Invoke the complete renamer
 -- ------------------------------------------------------------------------------
