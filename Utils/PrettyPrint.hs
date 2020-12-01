@@ -4,6 +4,7 @@ module Utils.PrettyPrint
 ( -- All combinators I liked from PrettyPrint.HughesPJ
   (<+>), ($$), ($+$)
 , hcat, hsep, vcat, sep, cat, fsep, fcat
+, hcatmap, hsepmap
 , parens, brackets, braces, quotes, doubleQuotes
 , maybeParens, maybeBrackets, maybeBraces, maybeQuotes, maybeDoubleQuotes
 , nest, hang, punctuate
@@ -84,6 +85,10 @@ sep  = liftListOp P.sep
 cat  = liftListOp P.cat
 fsep = liftListOp P.fsep
 fcat = liftListOp P.fcat
+
+hcatmap, hsepmap :: PrettyPrint a => (a -> Doc) -> [a] -> Doc
+hcatmap f vs = hcat $ map f vs
+hsepmap f vs = hsep $ map f vs
 
 -- ----------------------------------------------------------------------------
 parens, brackets, braces, quotes, doubleQuotes :: Doc -> Doc
