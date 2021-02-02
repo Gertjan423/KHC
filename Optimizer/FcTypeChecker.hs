@@ -3,9 +3,9 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
 
-module Backend.FcTypeChecker (fcTypeCheck) where
+module Optimizer.FcTypeChecker (fcTypeCheck) where
 
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Substitution
 import Utils.Var

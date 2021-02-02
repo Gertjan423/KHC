@@ -8,7 +8,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Backend.FcTypes where
+module Optimizer.FcTypes where
 
 import Utils.Unique
 import Utils.Var

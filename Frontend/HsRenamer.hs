@@ -4,7 +4,7 @@
 module Frontend.HsRenamer (RnEnv(..), hsRename) where
 
 import Frontend.HsTypes
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Unique
 import Utils.Var

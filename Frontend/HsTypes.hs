@@ -3,7 +3,7 @@
 
 module Frontend.HsTypes where
 
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Var
 import Utils.Kind

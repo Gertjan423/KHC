@@ -9,7 +9,7 @@ import Frontend.HsTypes
 import Frontend.HsRenamer
 import Frontend.Conditions
 
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Substitution
 import Utils.FreeVars
