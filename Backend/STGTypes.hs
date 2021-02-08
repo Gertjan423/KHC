@@ -1,42 +1,62 @@
+{-|
+Module      : Backend.STGTypes
+Description : Spineless Tagless G-Machine abstract syntax and pretty printing
+Copyright   : Elias Storme, 2020
+              Gert-Jan Bottu, 2020
+
+Datatype declarations and pretty printing code for STG abstract syntax.
+Based on definitions from the paper <https://www.microsoft.com/en-us/research/wp-content/uploads/1992/04/spineless-tagless-gmachine.pdf Peyton Jones, Simon. (1992). Implementing Lazy Functional Languages on Stock Hardware: The Spineless Tagless G-Machine.. J. Funct. Program.. 2. 127-202. 10.1017/S0956796800000319.> 
+-}
 module Backend.STGTypes where
 
 import Utils.Var
 import Utils.PrettyPrint
 
--- * Programs and variable bindings
+-- * Type Declarations
+-- ** Programs
 -- ----------------------------------------------------------------------------
 
+-- | A program in the STG language.
+-- A program is simply a collection of variable bindings. Its result is obtained by evaluating the global variable `main`.
 newtype SProg = SProg SBinds
 
--- Variable
+-- ** Variables and bindings
+-- ----------------------------------------------------------------------------
+
+-- | Variable
 newtype SVar = SVar {svar_name :: Name}
+-- | Constructor
 newtype SCon = SCon {scon_clos :: SVar}
 
--- Variable binding (non-empty list of bindings)
-data SBinds = SBinds SVar SLForm SBinds
-            | SBind  SVar SLForm
+-- | Variable binding list
+-- A list of bindings containing at least one element.
+data SBinds = SBinds SBind (Maybe SBinds)
+-- | Single variable binding
+data SBind  = SBind  SVar SLForm
 
--- * Expressions and atoms
+-- ** Expressions and atoms
 -- ----------------------------------------------------------------------------
 
--- Expression
-data SExpr = SLet  SBinds   SExpr
-           | SLetR SBinds   SExpr
-           | SCase SExpr    SAlts
-           | SApp  SVar    [SAtom]
-           | SCApp SCon    [SAtom]
-           | SPApp SPrimOp [SAtom]
-           | SELit SLit
+-- | Expression
+data SExpr 
+  = SLet  SBinds   SExpr  -- ^ Let expression
+  | SLetR SBinds   SExpr  -- ^ Letrec expression
+  | SCase SExpr    SAlts  -- ^ Case expression
+  | SApp  SVar    [SAtom] -- ^ Application expression
+  | SCApp SCon    [SAtom] -- ^ Fully saturated constructor application
+  | SPApp SPrimOp [SAtom] -- ^ Fully saturated primitive operation application
+  | SELit SLit            -- ^ Literal expression
 
--- Atoms
+-- | Atom
 data SAtom = SVAt SVar | SLAt SLit
 
--- * Case expression
+-- ** Case expression
 -- ----------------------------------------------------------------------------
 
--- Case alternatives
-data SAlts = MkAAlts [SAAlt] SDefAlt -- algebraic alternative
-           | MkPAlts [SPAlt] SDefAlt
+-- | Case alternatives
+data SAlts
+  = MkAAlts [SAAlt] SDefAlt -- ^ ADT alternatives 
+  | MkPAlts [SPAlt] SDefAlt -- ^ Primitive alternatives
 
 -- Algebraic alternative (over ADT)
 data SAAlt   = SAAlt SCon [SVar] SExpr
@@ -45,33 +65,40 @@ data SPAlt   = SPAlt SLit SExpr
 -- Default alternative
 data SDefAlt = SDefAlt [SVar] SExpr
 
--- * Lambda form
+-- ** Lambda form
 -- ----------------------------------------------------------------------------
 
--- Lambda form
-data SLForm = SLForm { slform_var_free :: [SVar]    -- Free variables
-                     , slform_upd_flag :: SUFlag    -- Update flag
-                     , slform_var_attr :: [SVar]    -- Lambda attributes
-                     , slform_exp      :: SExpr     -- Lambda body
+-- | Lambda form
+data SLForm = SLForm { slform_var_free :: [SVar]    -- ^ Free variables
+                     , slform_upd_flag :: SUFlag    -- ^ Update flag
+                     , slform_var_attr :: [SVar]    -- ^ Lambda attributes
+                     , slform_exp      :: SExpr     -- ^ Lambda body
                      }
 
--- Updatable flag
-data SUFlag = Uble | NUble
+-- | Update flag
+data SUFlag 
+  = Uble  -- ^ Updatable
+  | NUble -- ^ Not Updatable
 
--- * Primitive ops and literals
+-- ** Primitive ops and literals
 -- ----------------------------------------------------------------------------
 
--- Primitive operations
-data SPrimOp = SAdd | SSub | SMul | SDiv
+-- | Primitive operations
+data SPrimOp 
+  = SAdd -- ^ Addition
+  | SSub -- ^ Subtraction
+  | SMul -- ^ Multiplication
+  | SDiv -- ^ Division
 
--- Wrapped literals
-newtype SLit = SLit Int
-
--- * Pretty Printing
--- ------------------------------------------------------------------------------
+-- | Wrapped literals
+newtype SLit 
+  = SLit Int -- ^ Wrapped integer
 
 -- instance Symable SVar where
 --   symOf = symOf . svar_name
+
+-- Pretty printing
+-- ----------------------------------------------------------------------------
 
 instance PrettyPrint SExpr where
   ppr (SLet  bs  e  ) = hang (colorDoc yellow (text "let"))
@@ -107,13 +134,14 @@ instance PrettyPrint SUFlag where
   ppr NUble = text "\\n"
   needsParens = const False
 
--- | Pretty print variable bindings
 instance PrettyPrint SBinds where
-  ppr (SBinds v lf bs) = ppr (SBind v lf) $$ ppr bs
-  ppr (SBind  v lf   ) = ppr v <+> text "=" <+> ppr lf
+  ppr (SBinds vb bs) = ppr vb $$ ppr bs
   needsParens = const False
 
--- | Pretty print case alternatives
+instance PrettyPrint SBind where
+  ppr (SBind v lf) = ppr v <+> text "=" <+> ppr lf
+  needsParens = const False 
+
 instance PrettyPrint SAlts where
   ppr (MkAAlts as d) = vcat $ map ppr as ++ [ppr d]
   ppr (MkPAlts as d) = vcat $ map ppr as ++ [ppr d]
@@ -135,8 +163,6 @@ instance PrettyPrint SDefAlt where
         _ -> hcatmap ppr vs
   needsParens = const False
 
-
--- | Pretty print atoms, variables and constructors
 instance PrettyPrint SAtom where
   ppr (SVAt v) = ppr v
   ppr (SLAt l) = ppr l
@@ -150,7 +176,6 @@ instance PrettyPrint SCon where
   ppr           = ppr . scon_clos
   needsParens = const False 
 
--- | Pretty print primitive literals and operators
 instance PrettyPrint SLit where
   ppr (SLit i)  = int i <> text "#"
   needsParens = const False
