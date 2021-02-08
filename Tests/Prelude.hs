@@ -1,3 +1,6 @@
+-- | Description : Prelude adapted for KHC
+-- | Copyright   : ???
+
 -- General/Miscellaneous functions
 id :: forall (a :: *).
       a -> a

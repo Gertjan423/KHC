@@ -1,13 +1,13 @@
 
 module Frontend.HsParser (hsParse) where
 
--- | Main types
+-- Main types
 import Frontend.HsTypes
 import Utils.Kind (Kind(..))
 import Utils.Var (Sym, mkSym, PsTyVar, mkPsTyVar, PsTmVar, mkPsTmVar)
 import Utils.Annotated (Ann((:|)))
 
--- | Utilities
+-- Utilities
 import Control.Applicative (Alternative, liftA2, (<**>))
 import Data.Functor (($>))
 import Data.Void (Void)
