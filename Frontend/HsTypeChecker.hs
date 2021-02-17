@@ -9,7 +9,7 @@ import Frontend.HsTypes
 import Frontend.HsRenamer
 import Frontend.Conditions
 
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Substitution
 import Utils.FreeVars
@@ -53,6 +53,7 @@ buildInitTcEnv pgm (RnEnv _rn_cls_infos dc_infos tc_infos) = do -- GEORGE: Assum
     buildStoreClsInfos (PgmExp {})   = return ()
     buildStoreClsInfos (PgmInst _ p) = buildStoreClsInfos p
     buildStoreClsInfos (PgmData _ p) = buildStoreClsInfos p
+    buildStoreClsInfos (PgmFunc _ p) = buildStoreClsInfos p
     buildStoreClsInfos (PgmCls  c p) = case c of
       ClsD rn_cs rn_cls (rn_a :| _kind) rn_method method_ty -> do
         -- Generate And Store The TyCon Info
@@ -90,7 +91,11 @@ addTyConInfoTcM tc info = modify $ \s ->
 -- * Type Checking Monad
 -- ------------------------------------------------------------------------------
 
-type TcM = UniqueSupplyT (ReaderT TcCtx (StateT TcEnv (ExceptT String (Writer Trace))))
+type TcM  = UniqueSupplyT 
+          ( ReaderT TcCtx 
+          ( StateT TcEnv 
+          ( ExceptT String 
+          ( Writer Trace ) ) ) )
 
 type TcCtx = Ctx RnTmVar RnPolyTy RnTyVar Kind
 
@@ -778,6 +783,27 @@ extendCtxKindAnnotatedTysM ann_as = extendCtxTysM as (map kindOf as)
   where
     as = map labelOf ann_as
 
+-- * Function Declaration Elaboration
+-- ------------------------------------------------------------------------------
+
+-- | Elaborate a function declaration
+elabFuncDecl :: FullTheory -> RnFuncDecl
+             -> TcM (FcValBind, TcCtx)
+elabFuncDecl theory (FuncD func func_ty func_tm) = do
+  -- Construct the extended typing environment
+  ty_ctx <- extendCtxTmM func func_ty ask
+
+  -- Elaborate function type
+  (_kind, fc_func_ty) <- wfElabPolyTy func_ty
+
+  -- Elaborate function term
+  (fc_tm) <- setTcCtxTmM ty_ctx (elabTermWithSig [] theory func_tm func_ty)
+
+  -- Resulting binding
+  let fc_val_bind = FcValBind (rnTmVarToFcTmVar func) fc_func_ty fc_tm
+
+  return (fc_val_bind, ty_ctx)
+
 -- * Class Instance Elaboration
 -- ------------------------------------------------------------------------------
 
@@ -964,30 +990,37 @@ elabProgram :: FullTheory -> RnProgram
             -> TcM ( FcProgram       {- Elaborated program       -}
                    , RnPolyTy        {- Term type (MonoTy?)      -}
                    , FullTheory )    {- Final program theory     -}
--- Elaborate the program expression
+-- ^ Elaborate the program expression
 elabProgram theory (PgmExp tm) = do
   (ty, fc_tm) <- elabTermSimpl (ftDropSuper theory) tm
   return (FcPgmTerm fc_tm, ty, theory) -- GEORGE: You should actually return the ones we have accumulated.
 
--- Elaborate a class declaration
+-- ^ Elaborate a class declaration
 elabProgram theory (PgmCls cls_decl pgm) = do
   (fc_data_decl, fc_val_bind, fc_sc_proj, ext_theory, ext_ty_env)  <- elabClsDecl cls_decl
   (fc_pgm, ty, final_theory) <- setTcCtxTmM ext_ty_env (elabProgram (theory `ftExtendSuper` ext_theory) pgm)
   let fc_program = FcPgmDataDecl fc_data_decl (FcPgmValDecl fc_val_bind (foldl (flip FcPgmValDecl) fc_pgm fc_sc_proj))
   return (fc_program, ty, final_theory)
 
--- | Elaborate a class instance
+-- ^ Elaborate a class instance
 elabProgram theory (PgmInst ins_decl pgm) = do
   (fc_val_bind, ext_theory) <- elabInsDecl theory ins_decl
   (fc_pgm, ty, final_theory) <- elabProgram ext_theory pgm
   let fc_program = FcPgmValDecl fc_val_bind fc_pgm
   return (fc_program, ty, final_theory)
 
--- Elaborate a datatype declaration
+-- ^ Elaborate a datatype declaration
 elabProgram theory (PgmData data_decl pgm) = do
   fc_data_decl <- elabDataDecl data_decl
   (fc_pgm, ty, final_theory) <- elabProgram theory pgm
   let fc_program = FcPgmDataDecl fc_data_decl fc_pgm
+  return (fc_program, ty, final_theory)
+
+-- ^ Elaborate a function declaration
+elabProgram theory (PgmFunc func_decl pgm) = do
+  (fc_val_bind, ext_ty_env) <- elabFuncDecl theory func_decl
+  (fc_pgm, ty, final_theory) <- setTcCtxTmM ext_ty_env $ elabProgram theory pgm
+  let fc_program = FcPgmValDecl fc_val_bind fc_pgm
   return (fc_program, ty, final_theory)
 
 -- * Invoke the complete type checker

@@ -14,4 +14,4 @@ instance Snd Nil where
 instance Loop Nil where
   loop = loop
 
-fst (\x. x) loop
+(fst (\x. x) loop)

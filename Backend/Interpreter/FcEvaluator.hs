@@ -3,9 +3,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Backend.FcEvaluator (fcEvaluate) where
+module Backend.Interpreter.FcEvaluator (fcEvaluate) where
 
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Annotated
 import Utils.Kind

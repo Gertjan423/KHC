@@ -5,8 +5,8 @@ module Main (main, runTest) where
 import Frontend.HsParser      (hsParse)
 import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
-import Backend.FcTypeChecker  (fcTypeCheck)
-import Backend.FcEvaluator    (fcEvaluate)
+import Optimizer.FcTypeChecker  (fcTypeCheck)
+import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
 import Utils.PrettyPrint

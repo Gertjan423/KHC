@@ -7,7 +7,7 @@
 module Utils.Substitution where
 
 import Frontend.HsTypes
-import Backend.FcTypes
+import Optimizer.FcTypes
 
 import Utils.Var
 import Utils.Kind
