@@ -1,2 +1,3 @@
 dist/*
 dist-newstyle/*
+*.sublime-project
