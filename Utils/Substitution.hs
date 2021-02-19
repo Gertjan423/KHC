@@ -83,6 +83,7 @@ instance SubstVar FcTyVar FcType FcType where
 instance SubstVar FcTyVar FcType FcTerm where
   substVar a aty = \case
     FcTmVar x            -> FcTmVar x
+    FcTmPrim tm          -> FcTmPrim tm
     FcTmAbs x ty tm      -> FcTmAbs x (substVar a aty ty) (substVar a aty tm)
     FcTmApp tm1 tm2      -> FcTmApp (substVar a aty tm1) (substVar a aty tm2)
     FcTmTyAbs b tm
@@ -107,6 +108,7 @@ instance SubstVar FcTmVar FcTerm FcTerm where
     FcTmVar y
       | x == y      -> xtm
       | otherwise   -> FcTmVar y
+    FcTmPrim tm     -> FcTmPrim tm
     FcTmAbs y ty tm
       | x == y      -> error "substFcTmVarInTm: Shadowing (tmabs)"
       | otherwise   -> FcTmAbs y ty (substVar x xtm tm)
@@ -328,6 +330,7 @@ instance FreshenLclBndrs FcTerm where
   freshenLclBndrs (FcTmAbs x ty tm) = freshFcTmVar >>= \y ->
     FcTmAbs y <$> freshenLclBndrs ty <*> freshenLclBndrs (substVar x (FcTmVar y) tm)
   freshenLclBndrs (FcTmVar x)       = return (FcTmVar x)
+  freshenLclBndrs (FcTmPrim tm)     = return (FcTmPrim tm)
   freshenLclBndrs (FcTmApp tm1 tm2) = FcTmApp <$> freshenLclBndrs tm1 <*> freshenLclBndrs tm2
   freshenLclBndrs (FcTmTyAbs a tm)  = freshFcTyVar (kindOf a) >>= \b ->
     FcTmTyAbs b <$> freshenLclBndrs (substVar a (FcTyVar b) tm)

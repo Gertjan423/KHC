@@ -146,9 +146,9 @@ rnTyPat = liftM (second nub) . go
 
 -- | Rename a monotype
 rnMonoTy :: PsMonoTy -> RnM RnMonoTy
-rnMonoTy (TyCon tc)      = TyCon <$> lookupTyCon tc
-rnMonoTy (TyApp ty1 ty2) = TyApp <$> rnMonoTy ty1 <*> rnMonoTy ty2
-rnMonoTy (TyVar psa)     = TyVar <$> lookupTyVarM psa
+rnMonoTy (TyCon  tc)      = TyCon <$> lookupTyCon tc
+rnMonoTy (TyApp  ty1 ty2) = TyApp <$> rnMonoTy ty1 <*> rnMonoTy ty2
+rnMonoTy (TyVar  psa)     = TyVar <$> lookupTyVarM psa
 
 -- | Rename a qualified type
 rnQualTy :: PsQualTy -> RnM RnQualTy
@@ -194,6 +194,7 @@ rnTmVar psx = mkRnTmVar <$> rnSym (symOf psx)
 rnTerm :: PsTerm -> RnM RnTerm
 rnTerm (TmVar x)          = TmVar <$> lookupTmVarM x
 rnTerm (TmCon dc)         = TmCon <$> lookupDataCon dc
+rnTerm (TmPrim x)         = return (TmPrim x)
 rnTerm (TmAbs psx pstm)   = do
   rnx  <- rnTmVar psx
   rntm <- extendCtxTmM psx rnx (rnTerm pstm)
@@ -389,7 +390,9 @@ hsRename us pgm = runWriter
     rn_init_ctx     = mempty
     rn_init_gbl_env = RnEnv { rn_env_cls_info = mempty
                             , rn_env_dc_info  = mempty
-                            , rn_env_tc_info  = extendAssocList psArrowTyCon arrowTyConInfo mempty
+                            , rn_env_tc_info  = extendAssocList psIntTyCon intTyConInfo 
+                                                  (extendAssocList psArrowTyCon arrowTyConInfo 
+                                                    mempty)
                             }
 
 -- | Throw an error

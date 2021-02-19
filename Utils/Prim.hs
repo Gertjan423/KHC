@@ -1,21 +1,38 @@
-module Utils.Prim (PrimTy(..), PrimTm(..), PrimOp(..), PrimLit(..)) where
+{-|
+Module      : Utils.Prim
+Description : Datatypes for primitive terms
+Copyright   : Elias Storme, 2020
+              Gert-Jan Bottu, 2020
+
+Datatypes for primitive operators and literals used throughout the compiler
+-}
+module Utils.Prim where
 
 import Utils.PrettyPrint
 
-data PrimTy = PIntTy
+-- | Primitive term
+data PrimTm = PrimOpTm PrimOp    -- ^ Operator
+            | PrimLitTm PrimLit  -- ^ Literal
+  deriving Eq
 
-data PrimTm = PrimOpTm PrimOp | PrimLitTm PrimLit
+-- | Primitive operator
+newtype PrimOp = PrimIntOp PrimIntOp
+  deriving Eq
 
-data PrimOp = PIntAdd 
-            | PIntSub
-            | PIntMul
-            | PIntEq
+-- | Primitive operator on integers
+data PrimIntOp = PIntAdd 
+               | PIntSub
+               | PIntMul
+               -- | PIntEq
+  deriving Eq
 
-newtype PrimLit = PInt Int
+-- | Primitive literal
+newtype PrimLit = PInt Int -- ^ Integer literal
+  deriving Eq
 
-instance PrettyPrint PrimTy where
-  ppr PIntTy = text "Int#"
-  needsParens _ = False
+--
+-- Pretty Printing
+--
 
 instance PrettyPrint PrimTm where
   ppr (PrimOpTm x)  = ppr x
@@ -23,12 +40,16 @@ instance PrettyPrint PrimTm where
   needsParens _ = False
 
 instance PrettyPrint PrimOp where
+  ppr (PrimIntOp x) = ppr x
+  needsParens _ = False
+
+instance PrettyPrint PrimIntOp where
   ppr PIntAdd = text "+#"
   ppr PIntSub = text "-#"
   ppr PIntMul = text "*#"
-  ppr PIntEq  = text "==#"
+  -- ppr PIntEq  = text "==#"
   needsParens _ = False
 
 instance PrettyPrint PrimLit where
-  ppr (PInt x) = ppr x <> text "#"
+  ppr (PInt x) = ppr x
   needsParens _ = False
