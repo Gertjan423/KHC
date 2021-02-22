@@ -13,6 +13,7 @@ module Optimizer.FcTypes where
 import Utils.Unique
 import Utils.Var
 import Utils.Kind
+import Utils.Prim
 import Utils.PrettyPrint
 import Utils.Annotated
 import Utils.FreeVars
@@ -35,12 +36,24 @@ isFcArrowTy (FcTyApp (FcTyApp (FcTyCon tc) ty1) ty2)
   | tc == fcArrowTyCon  = Just (ty1, ty2)
 isFcArrowTy _other_type = Nothing
 
+-- * Primitive Type Constructors
+-- ----------------------------------------------------------------------------
+
+mkFcIntTy :: FcType
+mkFcIntTy = FcTyCon fcIntTyCon
+
+fcIntTyCon :: FcTyCon
+fcIntTyCon = FcTC (mkName (mkSym "Int#") intTyConUnique)
+
+mkIntBinopTy :: FcType
+mkIntBinopTy = mkFcArrowTy mkFcIntTy (mkFcArrowTy mkFcIntTy mkFcIntTy)
+
 -- * Types
 -- ----------------------------------------------------------------------------
-data FcType = FcTyVar FcTyVar        -- ^ Type variable
-            | FcTyAbs FcTyVar FcType -- ^ Type abstraction
-            | FcTyApp FcType  FcType -- ^ Type application
-            | FcTyCon FcTyCon        -- ^ Type constructor
+data FcType = FcTyVar  FcTyVar        -- ^ Type variable
+            | FcTyAbs  FcTyVar FcType -- ^ Type abstraction
+            | FcTyApp  FcType  FcType -- ^ Type application
+            | FcTyCon  FcTyCon        -- ^ Type constructor
 
 -- | Syntactic equality on System F types
 eqFcTypes :: FcType -> FcType -> Bool
@@ -49,10 +62,10 @@ eqFcTypes (FcTyAbs v1 t1) (FcTyAbs v2 t2) = (v1 == v2)      && eqFcTypes t1 t2
 eqFcTypes (FcTyApp t1 t2) (FcTyApp t3 t4) = eqFcTypes t1 t3 && eqFcTypes t2 t4
 eqFcTypes (FcTyCon tc1)   (FcTyCon tc2)   = tc1 == tc2
 
-eqFcTypes (FcTyVar {}) _ = False
-eqFcTypes (FcTyAbs {}) _ = False
-eqFcTypes (FcTyApp {}) _ = False
-eqFcTypes (FcTyCon {}) _ = False
+eqFcTypes (FcTyVar {}) _  = False
+eqFcTypes (FcTyAbs {}) _  = False
+eqFcTypes (FcTyApp {}) _  = False
+eqFcTypes (FcTyCon {}) _  = False
 
 -- | Type Constructors
 newtype FcTyCon = FcTC { unFcTC :: Name }
@@ -161,6 +174,7 @@ fcTyConApp tc tys = fcTyApp (FcTyCon tc) tys
 -- ----------------------------------------------------------------------------
 data FcTerm = FcTmAbs FcTmVar FcType FcTerm         -- ^ Term abstraction: lambda x : ty . tm
             | FcTmVar FcTmVar                       -- ^ Term variable
+            | FcTmPrim PrimTm                       -- ^ Primitive term
             | FcTmApp FcTerm FcTerm                 -- ^ Term application
             | FcTmTyAbs FcTyVar FcTerm              -- ^ Type abstraction: Lambda a . tm
             | FcTmTyApp FcTerm FcType               -- ^ Type application
@@ -238,6 +252,7 @@ instance ContainsFreeTyVars FcType FcTyVar where
 instance ContainsFreeTyVars FcTerm FcTyVar where
   ftyvsOf (FcTmAbs x ty tm)      = ftyvsOf ty ++ ftyvsOf tm
   ftyvsOf (FcTmVar x)            = []
+  ftyvsOf (FcTmPrim _)          = []
   ftyvsOf (FcTmApp tm1 tm2)      = ftyvsOf tm1 ++ ftyvsOf tm2
   ftyvsOf (FcTmTyAbs a tm)       = ftyvsOf tm \\ [a]
   ftyvsOf (FcTmTyApp tm ty)      = ftyvsOf tm ++ ftyvsOf ty
@@ -296,6 +311,7 @@ instance PrettyPrint FcDataCon where
 instance PrettyPrint FcTerm where
   ppr (FcTmAbs x ty tm)    = hang (backslash <> parens (ppr x <+> dcolon <+> ppr ty) <> dot) 2 (ppr tm)
   ppr (FcTmVar x)          = ppr x
+  ppr (FcTmPrim tm)        = ppr tm
   ppr (FcTmApp tm1 tm2)
     | FcTmApp   {} <- tm1  = ppr tm1    <+> pprPar tm2
     | FcTmTyApp {} <- tm1  = ppr tm1    <+> pprPar tm2
@@ -316,6 +332,7 @@ instance PrettyPrint FcTerm where
   needsParens (FcTmCase    {}) = True
   needsParens (FcTmAbs     {}) = True
   needsParens (FcTmVar     {}) = False
+  needsParens (FcTmPrim    {}) = False
   needsParens (FcTmTyAbs   {}) = True
   needsParens (FcTmDataCon {}) = False
 

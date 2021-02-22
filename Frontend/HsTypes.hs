@@ -7,6 +7,7 @@ import Optimizer.FcTypes
 
 import Utils.Var
 import Utils.Kind
+import Utils.Prim
 import Utils.Annotated
 import Utils.Unique
 import Utils.FreeVars
@@ -109,6 +110,7 @@ data RnClsInfo
 
 data Term a = TmVar (HsTmVar a)                   -- ^ Term variable
             | TmCon (HsDataCon a)                 -- ^ Data constructor
+            | TmPrim PrimTm                       -- ^ Primitive term
             | TmAbs (HsTmVar a) (Term a)          -- ^ Lambda x . Term
             | TmApp (Term a) (Term a)             -- ^ Term application
             | TmLet (HsTmVar a) (Term a) (Term a) -- ^ Letrec var = term in term
@@ -186,6 +188,27 @@ data PolyTy a = PQual (QualTy a)
 -- | Parsed/renamed polytype
 type PsPolyTy = PolyTy Sym
 type RnPolyTy = PolyTy Name
+
+intTyConSym :: Sym
+intTyConSym = mkSym "Int#"
+
+intTyConName :: Name
+intTyConName = mkName intTyConSym intTyConUnique
+
+psIntTyCon :: PsTyCon
+psIntTyCon = HsTC intTyConSym
+
+rnIntTyCon :: RnTyCon
+rnIntTyCon = HsTC intTyConName
+
+mkRnIntTy :: RnMonoTy
+mkRnIntTy = TyCon rnIntTyCon
+
+intTyConInfo :: HsTyConInfo
+intTyConInfo = HsTCInfo rnIntTyCon [] fcIntTyCon
+
+mkRnIntBinopTy :: RnMonoTy
+mkRnIntBinopTy = mkRnArrowTy [mkRnIntTy, mkRnIntTy] mkRnIntTy
 
 arrowTyConSym :: Sym
 arrowTyConSym = mkSym "(->)"
@@ -549,6 +572,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Term a) where
   ppr (TmLet v tm1 tm2)  = colorDoc yellow (text "let") <+> ppr v <+> equals <+> ppr tm1
                         $$ colorDoc yellow (text "in")  <+> ppr tm2
   ppr (TmCase scr alts)  = hang (text "case" <+> ppr scr <+> text "of") 2 (vcat $ map ppr alts)
+  ppr (TmPrim tm)        = ppr tm
 
   needsParens (TmAbs  {}) = True
   needsParens (TmApp  {}) = True
@@ -556,6 +580,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Term a) where
   needsParens (TmCase {}) = True
   needsParens (TmVar  {}) = False
   needsParens (TmCon  {}) = False
+  needsParens (TmPrim {}) = False
 
 -- | Pretty print type patterns
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsTyPat a) where
@@ -577,9 +602,9 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (MonoTy a) where
     | otherwise       = pprPar ty1 <+> pprPar ty2
   ppr (TyVar var)     = ppr var
 
-  needsParens (TyCon {}) = False
-  needsParens (TyApp {}) = True
-  needsParens (TyVar {}) = False
+  needsParens (TyCon  {}) = False
+  needsParens (TyApp  {}) = True
+  needsParens (TyVar  {}) = False
 
 -- | Pretty print qualified types
 instance (Symable a, PrettyPrint a) => PrettyPrint (QualTy a) where

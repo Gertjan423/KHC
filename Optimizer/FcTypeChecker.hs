@@ -10,6 +10,7 @@ import Optimizer.FcTypes
 import Utils.Substitution
 import Utils.Var
 import Utils.Kind
+import Utils.Prim
 import Utils.Unique
 import Utils.AssocList
 import Utils.Ctx
@@ -137,6 +138,7 @@ tcTerm (FcTmAbs x ty1 tm) = do
   ty2  <- extendCtxTmM x ty1 (tcTerm tm)
   return (mkFcArrowTy ty1 ty2)
 tcTerm (FcTmVar x) = lookupTmVarM x
+tcTerm (FcTmPrim tm) = tcTmPrim tm
 tcTerm (FcTmApp tm1 tm2)  = do
   ty1 <- tcTerm tm1
   ty2 <- tcTerm tm2
@@ -210,6 +212,11 @@ tcAlt scr_ty (FcAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
     let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys
     extendCtxTmsM xs real_arg_tys (tcTerm rhs)
   Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+
+-- | Type check a primitive term
+tcTmPrim :: PrimTm -> FcM FcType
+tcTmPrim (PrimOpTm (PrimIntOp _)) = return mkIntBinopTy
+tcTmPrim (PrimLitTm (PInt _))     = return mkFcIntTy
 
 -- | Ensure that all types are syntactically the same
 ensureIdenticalTypes :: [FcType] -> FcM ()

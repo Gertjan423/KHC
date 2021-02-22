@@ -56,6 +56,7 @@ module Utils.Unique
 
   -- * Built in uniques
 , arrowTyConUnique, arrowTyVar1Unique, arrowTyVar2Unique
+, intTyConUnique
 ) where
 
 import Utils.PrettyPrint
@@ -82,6 +83,13 @@ arrowTyVar1Unique = MkU 'b' 1
 
 arrowTyVar2Unique :: Unique
 arrowTyVar2Unique = MkU 'b' 2
+
+-- ----------------------------------------------------------------------------
+--                         Primitive TyCon Unique
+-- ---------------------------------------------------------------------------- 
+
+intTyConUnique :: Unique
+intTyConUnique = MkU 'p' 0
 
 -- ----------------------------------------------------------------------------
 --                                 Unique

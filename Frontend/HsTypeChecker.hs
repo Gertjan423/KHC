@@ -15,6 +15,7 @@ import Utils.Substitution
 import Utils.FreeVars
 import Utils.Var
 import Utils.Kind
+import Utils.Prim
 import Utils.Unique
 import Utils.AssocList
 import Utils.Annotated
@@ -413,30 +414,13 @@ annotateClsCs cs = do
 
 -- | Elaborate a term
 elabTerm :: RnTerm -> GenM (RnMonoTy, FcTerm)
-elabTerm (TmApp tm1 tm2)   = elabTmApp tm1 tm2
-elabTerm (TmAbs x tm)      = elabTmAbs x tm
 elabTerm (TmVar x)         = elabTmVar x
 elabTerm (TmCon dc)        = liftGenM (elabTmCon dc)
+elabTerm (TmPrim t)        = liftGenM (elabTmPrim t)
+elabTerm (TmAbs x tm)      = elabTmAbs x tm
+elabTerm (TmApp tm1 tm2)   = elabTmApp tm1 tm2
 elabTerm (TmLet x tm1 tm2) = elabTmLet x tm1 tm2
 elabTerm (TmCase scr alts) = elabTmCase scr alts
-
--- | Elaborate a term application
-elabTmApp :: RnTerm -> RnTerm -> GenM (RnMonoTy, FcTerm)
-elabTmApp tm1 tm2 = do
-  (ty1, fc_tm1) <- elabTerm tm1
-  (ty2, fc_tm2) <- elabTerm tm2
-  a <- TyVar <$> freshRnTyVar KStar
-  storeEqCs [mkRnArrowTy [ty2] a :~: ty1]
-  return (a, FcTmApp fc_tm1 fc_tm2)
-
--- | Elaborate a lambda abstraction
-elabTmAbs :: RnTmVar -> RnTerm -> GenM (RnMonoTy, FcTerm)
-elabTmAbs x tm = do
-  liftGenM (tmVarNotInTcCtxM x) {- ensure not bound -}
-  tv <- freshRnTyVar KStar
-  (ty, fc_tm) <- extendCtxTmM x (monoTyToPolyTy (TyVar tv)) $ elabTerm tm
-  let result = FcTmAbs (rnTmVarToFcTmVar x) (rnTyVarToFcType tv) fc_tm
-  return (mkRnArrowTy [TyVar tv] ty, result)
 
 -- | Elaborate a term variable
 elabTmVar :: RnTmVar -> GenM (RnMonoTy, FcTerm)
@@ -451,6 +435,40 @@ elabTmVar x = do
   let fc_tm = fcTmApp (fcTmTyApp (rnTmVarToFcTerm x) fc_bs) fc_ds
   return (ty, fc_tm)
 
+-- | Elaborate a data constructor
+elabTmCon :: RnDataCon -> TcM (RnMonoTy, FcTerm)
+elabTmCon dc = do
+  (bs, arg_tys, tc) <- freshenDataConSig dc
+  fc_dc <- lookupDataCon dc
+
+  let mono_ty = mkRnArrowTy arg_tys (mkTyConApp tc (map TyVar bs))                 -- Haskell monotype
+  let fc_tm = fcTmTyApp (FcTmDataCon fc_dc) (rnTyVarsToFcTypes bs) -- System F term
+
+  return (mono_ty, fc_tm)
+
+-- | Elaborate a primitive term
+elabTmPrim :: PrimTm -> TcM (RnMonoTy, FcTerm)
+elabTmPrim (PrimOpTm (PrimIntOp op)) = return (mkRnIntBinopTy, FcTmPrim (PrimOpTm (PrimIntOp op)))
+elabTmPrim (PrimLitTm (PInt x)) = return (mkRnIntTy, FcTmPrim (PrimLitTm (PInt x)))
+
+-- | Elaborate a lambda abstraction
+elabTmAbs :: RnTmVar -> RnTerm -> GenM (RnMonoTy, FcTerm)
+elabTmAbs x tm = do
+  liftGenM (tmVarNotInTcCtxM x) {- ensure not bound -}
+  tv <- freshRnTyVar KStar
+  (ty, fc_tm) <- extendCtxTmM x (monoTyToPolyTy (TyVar tv)) $ elabTerm tm
+  let result = FcTmAbs (rnTmVarToFcTmVar x) (rnTyVarToFcType tv) fc_tm
+  return (mkRnArrowTy [TyVar tv] ty, result)
+
+-- | Elaborate a term application
+elabTmApp :: RnTerm -> RnTerm -> GenM (RnMonoTy, FcTerm)
+elabTmApp tm1 tm2 = do
+  (ty1, fc_tm1) <- elabTerm tm1
+  (ty2, fc_tm2) <- elabTerm tm2
+  a <- TyVar <$> freshRnTyVar KStar
+  storeEqCs [mkRnArrowTy [ty2] a :~: ty1]
+  return (a, FcTmApp fc_tm1 fc_tm2)
+
 -- | Elaborate a let binding (monomorphic, recursive)
 elabTmLet :: RnTmVar -> RnTerm -> RnTerm -> GenM (RnMonoTy, FcTerm)
 elabTmLet x tm1 tm2 = do
@@ -462,16 +480,6 @@ elabTmLet x tm1 tm2 = do
   let fc_tm = FcTmLet (rnTmVarToFcTmVar x) (rnTyVarToFcType tv) fc_tm1 fc_tm2
   return (ty2, fc_tm)
 
--- | Elaborate a data constructor
-elabTmCon :: RnDataCon -> TcM (RnMonoTy, FcTerm)
-elabTmCon dc = do
-  (bs, arg_tys, tc) <- freshenDataConSig dc
-  fc_dc <- lookupDataCon dc
-
-  let mono_ty = mkRnArrowTy arg_tys (mkTyConApp tc (map TyVar bs))                 -- Haskell monotype
-  let fc_tm = fcTmTyApp (FcTmDataCon fc_dc) (rnTyVarsToFcTypes bs) -- System F term
-
-  return (mono_ty, fc_tm)
 
 freshenDataConSig :: RnDataCon -> TcM ([RnTyVar], [RnMonoTy], RnTyCon)
 freshenDataConSig dc = do
@@ -552,9 +560,9 @@ unify  untchs eqs
       | otherwise  = Nothing
     one_step _us (TyApp ty1 ty2 :~: TyApp ty3 ty4)
       = Just (mempty, [ty1 :~: ty3, ty2 :~: ty4])
-    one_step _us (TyCon {} :~: TyApp {}) = Nothing
-    one_step _us (TyApp {} :~: TyCon {}) = Nothing
-
+    one_step _us (TyCon {}  :~: TyApp {} ) = Nothing
+    one_step _us (TyApp {}  :~: TyCon {} ) = Nothing
+    
     go :: (a -> Maybe b) -> [a] -> Maybe (b, [a])
     go _p []     = Nothing
     go  p (x:xs) | Just y <- p x = Just (y, xs)
