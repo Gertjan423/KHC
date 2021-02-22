@@ -299,8 +299,8 @@ pAlt = HsAlt <$> pPat <* symbol "->" <*> pTerm
 
 -- | Parse a primitive term
 pPrimTm :: PsM PrimTm
-pPrimTm =  PrimOpTm  <$> pPrimOp 
-       <|> PrimLitTm <$> pPrimLit
+pPrimTm =  try (PrimLitTm <$> pPrimLit)
+       <|> PrimOpTm  <$> pPrimOp 
 
 pPrimOp :: PsM PrimOp
 pPrimOp = PrimIntOp <$> pPrimIntOp

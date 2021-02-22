@@ -5,7 +5,7 @@ data Bool = True | False
 
 f :: Bool -> Int#
   = \x. case x of
-  	True -> 1
+  	True -> -8
   	False -> 2
 
-+# (f True) (f False)
+-# (+# 1 (f False)) (*# (f True) (f False))
