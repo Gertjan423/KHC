@@ -1,4 +1,5 @@
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE GADTs                  #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE LambdaCase             #-}
@@ -472,16 +473,12 @@ instance (FcTmMarker a) => FreshenLclBndrs (FcAlts a) where
   freshenLclBndrs (FcPAlts alts) = FcPAlts <$> mapM freshenLclBndrs alts
 
 -- | Freshen the (type + term) binders of a System F case alternative
-instance FreshenLclBndrs (FcAAlt Opt) where
-  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) = do {
+instance FcTmMarker a => FreshenLclBndrs (FcAAlt a) where
+  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Opt = do {
       ys  <- mapM (\_ -> freshFcTmVar) xs;
       tm' <- freshenLclBndrs $ substVar xs (map FcOptTmVar ys) tm;
       return (FcAAlt (FcConPat dc ys) tm')}
-
--- tm' <- freshenLclBndrs $ foldl (\t (x,y) -> substVar x (FcTmVar y) t) tm (zipExact xs ys)
-
-instance FreshenLclBndrs (FcAAlt Pre) where
-  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) = do {
+  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Pre = do {
       ys <- replicateM (length xs) freshFcTmVar;
       tm' <- freshenLclBndrs $ substVar xs ys tm;
       return (FcAAlt (FcConPat dc ys) tm')}

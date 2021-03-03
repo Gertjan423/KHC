@@ -204,13 +204,18 @@ type FcPreProgram = FcProgram Pre
 -- ----------------------------------------------------------------------------
 
 -- | Optimizer marker type
-data Opt
+data Opt = Opt
+  deriving Eq
 -- | Preprocessed marker type
-data Pre
+data Pre = Pre
+  deriving Eq
 
-class FcTmMarker a
-instance FcTmMarker Opt
-instance FcTmMarker Pre
+class Eq a => FcTmMarker a where
+  fcPhase :: a
+instance FcTmMarker Opt where
+  fcPhase = Opt
+instance FcTmMarker Pre where
+  fcPhase = Pre
 
 data FcTerm a where
   -- Optimizer language concepts
