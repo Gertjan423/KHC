@@ -140,31 +140,32 @@ instance SubstVar FcTyVar FcType (FcPAlt a) where
 -- ------------------------------------------------------------------------------
 
 -- | Substitute a term variable for a term in a term
-instance SubstVar FcTmVar (FcTerm Opt) (FcTerm Opt) where
-  substVar x xtm = \case
-    -- Opt
-    FcOptTmVar y
-      | x == y         -> xtm
-      | otherwise      -> FcOptTmVar y
-    FcOptTmPrim tm     -> FcOptTmPrim tm
-    FcOptTmAbs ab      -> FcOptTmAbs (substVar x xtm ab)
-    FcOptTmApp tm1 tm2 -> FcOptTmApp (substVar x xtm tm1) (substVar x xtm tm2)
-    FcOptTmTyAbs a tm  -> FcOptTmTyAbs a (substVar x xtm tm)
-    FcOptTmTyApp tm ty -> FcOptTmTyApp (substVar x xtm tm) ty
-    FcOptTmDataCon dc  -> FcOptTmDataCon dc
-    -- Pre
-    -- FcPreTmVarApp x ats -> FcPreTmVarApp x ats
-    -- FcPreTmDCApp dc ats -> FcPreTmDCApp dc ats
-    -- FcPreTmPApp  op ats -> FcPreTmPApp  op ats
-    -- FcPreTmTyAbs as tm -> FcPreTmTyAbs as (substVar x xtm tm)
-    -- Univ
-    FcTmLet bind tm  -> FcTmLet (substVar x xtm bind) (substVar x xtm tm)
-    FcTmCase tm alts -> FcTmCase (substVar x xtm tm) (substVar x xtm alts)
+instance SubstVar FcTmVar (FcTerm a) (FcTerm a) where  
+  substVar x xtm
+    | fcPhase == Opt = \case
+      -- Opt
+      FcOptTmVar y
+        | x == y         -> xtm
+        | otherwise      -> FcOptTmVar y
+      FcOptTmPrim tm     -> FcOptTmPrim tm
+      FcOptTmAbs ab      -> FcOptTmAbs (substVar x xtm ab)
+      FcOptTmApp tm1 tm2 -> FcOptTmApp (substVar x xtm tm1) (substVar x xtm tm2)
+      FcOptTmTyAbs a tm  -> FcOptTmTyAbs a (substVar x xtm tm)
+      FcOptTmTyApp tm ty -> FcOptTmTyApp (substVar x xtm tm) ty
+      FcOptTmDataCon dc  -> FcOptTmDataCon dc
+      -- Pre
+      -- FcPreTmVarApp x ats -> FcPreTmVarApp x ats
+      -- FcPreTmDCApp dc ats -> FcPreTmDCApp dc ats
+      -- FcPreTmPApp  op ats -> FcPreTmPApp  op ats
+      -- FcPreTmTyAbs as tm -> FcPreTmTyAbs as (substVar x xtm tm)
+      -- Univ
+      FcTmLet bind tm  -> FcTmLet (substVar x xtm bind) (substVar x xtm tm)
+      FcTmCase tm alts -> FcTmCase (substVar x xtm tm) (substVar x xtm alts)
 
 -- | Substitute a term variable for a term in a value binding
 instance SubstVar FcTmVar (FcTerm Opt) (FcBind Opt) where
   substVar x xtm (FcOptBind y ty tm)
-    | x == y      = error "substFcTmVarInTm: Shadowing (let)"
+    | x == y    = error "substFcTmVarInTm: Shadowing (let)"
     | otherwise = FcOptBind y ty (substVar x xtm tm)
   -- substVar x xtm (FcPreBind y ty ab)
   --   | x == y    = error "substFcTmVarInTm: Shadowing (let)"
@@ -194,15 +195,17 @@ instance SubstVar FcTmVar (FcTerm Opt) (FcPAlt Opt) where
 
 -- | Substitute one variable for another in a term (preprocessed syntax disallows variables as terms)
 instance SubstVar FcTmVar FcTmVar (FcTerm Pre) where
-  substVar x y = \case
-    FcPreTmVarApp z ats 
-      | x == z    -> FcPreTmVarApp y (substVar x y ats)
-      | otherwise -> FcPreTmVarApp z (substVar x y ats)
-    FcPreTmDCApp dc ats -> FcPreTmDCApp dc (substVar x y ats)
-    FcPreTmPApp  op ats -> FcPreTmPApp  op (substVar x y ats)
-    FcPreTmTyAbs as tm  -> FcPreTmTyAbs as (substVar x y tm)
-    FcTmLet bind tm -> FcTmLet (substVar x y bind) (substVar x y tm)
-    FcTmCase tm alts -> FcTmCase (substVar x y tm) (substVar x y alts)
+  substVar x y 
+    | fcPhase == Pre = \case
+      FcPreTmVarApp z ats 
+        | x == z    -> FcPreTmVarApp y (substVar x y ats)
+        | otherwise -> FcPreTmVarApp z (substVar x y ats)
+      FcPreTmDCApp dc ats -> FcPreTmDCApp dc (substVar x y ats)
+      FcPreTmPApp  op ats -> FcPreTmPApp  op (substVar x y ats)
+      FcPreTmTyAbs as tm  -> FcPreTmTyAbs as (substVar x y tm)
+      FcTmLet bind tm -> FcTmLet (substVar x y bind) (substVar x y tm)
+      FcTmCase tm alts -> FcTmCase (substVar x y tm) (substVar x y alts)
+    | otherwise = undefined
 
 instance SubstVar FcTmVar FcTmVar FcAtom where
   substVar x y (FcAtVar z) 
