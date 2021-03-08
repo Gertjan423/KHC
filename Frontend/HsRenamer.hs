@@ -205,16 +205,23 @@ rnTerm (TmLet x tm1 tm2)  = do
   rntm1 <- extendCtxTmM x rnx (rnTerm tm1)
   rntm2 <- extendCtxTmM x rnx (rnTerm tm2)
   return (TmLet rnx rntm1 rntm2)
-rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> mapM rnAlt alts
+rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> rnAlts alts
+
+rnAlts :: PsAlts -> RnM RnAlts
+rnAlts (HsAAlts alts) = HsAAlts <$> mapM rnAAlt alts
+rnAlts (HsPAlts alts) = HsPAlts <$> mapM rnPAlt alts
 
 -- | Rename a case alternative
-rnAlt :: PsAlt -> RnM RnAlt
-rnAlt (HsAlt (HsPat dc xs) tm) = do
+rnAAlt :: PsAAlt -> RnM RnAAlt
+rnAAlt (HsAAlt (HsPat dc xs) tm) = do
   rndc <- lookupDataCon dc
   rnxs <- mapM rnTmVar xs
   let binds = zipExact xs rnxs
   rntm <- extendTmVars binds (rnTerm tm)
-  return (HsAlt (HsPat rndc rnxs) rntm)
+  return (HsAAlt (HsPat rndc rnxs) rntm)
+
+rnPAlt :: PsPAlt -> RnM RnPAlt
+rnPAlt (HsPAlt lit tm) = HsPAlt lit <$> rnTerm tm
 
 -- | Rename a type constructor
 lookupTyCon :: PsTyCon -> RnM RnTyCon

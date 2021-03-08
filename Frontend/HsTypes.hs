@@ -114,24 +114,45 @@ data Term a = TmVar (HsTmVar a)                   -- ^ Term variable
             | TmAbs (HsTmVar a) (Term a)          -- ^ Lambda x . Term
             | TmApp (Term a) (Term a)             -- ^ Term application
             | TmLet (HsTmVar a) (Term a) (Term a) -- ^ Letrec var = term in term
-            | TmCase (Term a) [HsAlt a]           -- ^ case e of { ... }
+            | TmCase (Term a) (HsAlts a)          -- ^ case e of { ... }
 
 -- | Parsed/renamed term
 type PsTerm = Term Sym
 type RnTerm = Term Name
 
-data HsAlt a = HsAlt (HsPat a) (Term a)
+data HsAlts a 
+  = HsAAlts [HsAAlt a]
+  | HsPAlts [HsPAlt a]
 
-type PsAlt = HsAlt Sym
-type RnAlt = HsAlt Name
+type PsAlts = HsAlts Sym
+type RnAlts = HsAlts Name
+
+data HsAAlt a = HsAAlt (HsPat a) (Term a)
+
+type PsAAlt = HsAAlt Sym
+type RnAAlt = HsAAlt Name
+
+data HsPAlt a = HsPAlt PrimLit   (Term a)
+
+type PsPAlt = HsPAlt Sym
+type RnPAlt = HsPAlt Name
 
 data HsPat a = HsPat (HsDataCon a) [HsTmVar a]
 
 type PsPat = HsPat Sym
 type RnPat = HsPat Name
 
-instance (Symable a, PrettyPrint a) => PrettyPrint (HsAlt a) where
-  ppr (HsAlt pat tm) = ppr pat <+> arrow <+> ppr tm
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsAlts a) where
+  ppr (HsAAlts alts) = vcat $ map ppr alts
+  ppr (HsPAlts alts) = vcat $ map ppr alts
+  needsParens _      = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsAAlt a) where
+  ppr (HsAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
+  needsParens _      = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsPAlt a) where
+  ppr (HsPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
   needsParens _      = True
 
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsPat a) where
@@ -571,7 +592,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Term a) where
     | otherwise          = pprPar tm1 <+> pprPar tm2
   ppr (TmLet v tm1 tm2)  = colorDoc yellow (text "let") <+> ppr v <+> equals <+> ppr tm1
                         $$ colorDoc yellow (text "in")  <+> ppr tm2
-  ppr (TmCase scr alts)  = hang (text "case" <+> ppr scr <+> text "of") 2 (vcat $ map ppr alts)
+  ppr (TmCase scr alts)  = hang (text "case" <+> ppr scr <+> text "of") 2 (ppr alts)
   ppr (TmPrim tm)        = ppr tm
 
   needsParens (TmAbs  {}) = True

@@ -287,15 +287,23 @@ pTerm  =  pAppTerm
           <$  symbol "case"
           <*> pTerm
           <*  symbol "of"
-          <*> some (indent pAlt)
+          <*> pAlts
 
 -- | Parse a pattern
 pPat :: PsM PsPat
 pPat = HsPat <$> pDataCon <*> many pTmVar
 
--- | Parse a case alternative
-pAlt :: PsM PsAlt
-pAlt = HsAlt <$> pPat <* symbol "->" <*> pTerm
+pAlts :: PsM PsAlts
+pAlts =  try (HsAAlts <$> some (indent pAAlt))
+     <|> HsPAlts <$> some (indent pPAlt)
+
+-- | Parse an algebraic alternative
+pAAlt :: PsM PsAAlt
+pAAlt = HsAAlt <$> pPat <* symbol "->" <*> pTerm
+
+-- | Parse a primitive alternative
+pPAlt :: PsM PsPAlt
+pPAlt = HsPAlt <$> pPrimLit <* symbol "->" <*> pTerm
 
 -- | Parse a primitive term
 pPrimTm :: PsM PrimTm
