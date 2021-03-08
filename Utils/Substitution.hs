@@ -1,6 +1,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs                  #-}
-{-# LANGUAGE TypeSynonymInstances   #-}
+{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE UndecidableInstances   #-}
@@ -83,39 +83,44 @@ instance SubstVar FcTyVar FcType FcType where
     FcTyApp ty1 ty2 -> FcTyApp (substVar a ty ty1) (substVar a ty ty2)
     FcTyCon tc      -> FcTyCon tc
 
--- | Substitute a type variable for a type in a term
-instance SubstVar FcTyVar FcType (FcTerm a) where
+-- | Substitute a type variable for a type in an optimizer term
+instance SubstVar FcTyVar FcType FcOptTerm where
   substVar a aty = \case
-    -- Opt
-    FcOptTmVar x            -> FcOptTmVar x
-    FcOptTmPrim tm          -> FcOptTmPrim tm
-    FcOptTmAbs ab           -> FcOptTmAbs (substVar a aty ab)
-    FcOptTmApp tm1 tm2      -> FcOptTmApp (substVar a aty tm1) (substVar a aty tm2)
+    FcOptTmVar x         -> FcOptTmVar x
+    FcOptTmPrim tm       -> FcOptTmPrim tm
+    FcOptTmAbs x ty tm   -> FcOptTmAbs x (substVar a aty ty) (substVar a aty tm)
+    FcOptTmApp tm1 tm2   -> FcOptTmApp (substVar a aty tm1) (substVar a aty tm2)
     FcOptTmTyAbs b tm
-      | a == b           -> error "substFcTyVarInTm: Shadowing (tyabs)"
-      | otherwise        -> FcOptTmTyAbs b (substVar a aty tm)
+      | a == b             -> error "substFcTyVarInTm: Shadowing (tyabs)"
+      | otherwise          -> FcOptTmTyAbs b (substVar a aty tm)
     FcOptTmTyApp tm ty   -> FcOptTmTyApp (substVar a aty tm) (substVar a aty ty)
     FcOptTmDataCon dc    -> FcOptTmDataCon dc
-    -- Pre
+    FcOptTmLet bind tm   -> FcOptTmLet (substVar a aty bind) (substVar a aty tm)
+    FcOptTmCase tm alts  -> FcOptTmCase (substVar a aty tm) (substVar a aty alts)
+
+-- | Substitute a type variable for a type in a preprocessed term
+instance SubstVar FcTyVar FcType FcPreTerm where
+  substVar a aty = \case
     FcPreTmVarApp x at  -> FcPreTmVarApp x (substVar a aty at)
     FcPreTmDCApp dc at  -> FcPreTmDCApp dc (substVar a aty at)
     FcPreTmPApp  op at  -> FcPreTmPApp  op (substVar a aty at)
     FcPreTmTyAbs bs tm
-      | a `elem` bs      -> error "substFcTyVarInTm: Shadowing (tyabs)"
-      | otherwise        -> FcPreTmTyAbs bs (substVar a aty tm)
+      | a `elem` bs       -> error "substFcTyVarInTm: Shadowing (tyabs)"
+      | otherwise         -> FcPreTmTyAbs bs (substVar a aty tm)
     -- Universal
-    FcTmLet bind tm      -> FcTmLet (substVar a aty bind) (substVar a aty tm)
-    FcTmCase tm alts     -> FcTmCase (substVar a aty tm) (substVar a aty alts)
+    FcPreTmLet bind tm  -> FcPreTmLet (substVar a aty bind) (substVar a aty tm)
+    FcPreTmCase tm alts -> FcPreTmCase (substVar a aty tm) (substVar a aty alts)
 
-instance SubstVar FcTyVar FcType (FcBind a) where
-  substVar a aty = \case
-    FcOptBind x ty tm -> FcOptBind x (substVar a aty ty) (substVar a aty tm)
-    FcPreBind x ty ab -> FcPreBind x (substVar a aty ty) (substVar a aty ab)
+instance SubstVar FcTyVar FcType FcOptBind where
+  substVar a aty 
+    (FcBind x ty tm) = FcBind x (substVar a aty ty) (substVar a aty tm)
+instance SubstVar FcTyVar FcType FcPreBind where
+  substVar a aty
+    (FcBind x ty ab) = FcBind x (substVar a aty ty) (substVar a aty ab)
 
-instance SubstVar FcTyVar FcType (FcAbs a) where
-  substVar a aty = \case
-    FcOptAbs x  ty  tm -> FcOptAbs x  (substVar a aty ty ) (substVar a aty tm)
-    FcPreAbs xs tys tm -> FcPreAbs xs (substVar a aty tys) (substVar a aty tm)
+instance SubstVar FcTyVar FcType FcPreAbs where
+  substVar a aty
+    (FcPreAbs xs tys tm) = FcPreAbs xs (substVar a aty tys) (substVar a aty tm)
 
 instance SubstVar FcTyVar FcType FcAtom where
   substVar a aty = \case
@@ -124,115 +129,108 @@ instance SubstVar FcTyVar FcType FcAtom where
     FcAtType ty -> FcAtType (substVar a aty ty)
 
 -- | Substitute a type variable for a type in a case alternative
-instance SubstVar FcTyVar FcType (FcAlts a) where
+instance SubstVar FcTyVar FcType FcOptAlts where
   substVar a ty = \case
     FcAAlts alts -> FcAAlts (substVar a ty alts)
     FcPAlts alts -> FcPAlts (substVar a ty alts)
   -- GEORGE: Now the patterns do not bind type variables so we don't have to check for shadowing here.
+instance SubstVar FcTyVar FcType FcPreAlts where
+  substVar a ty = \case
+    FcAAlts alts -> FcAAlts (substVar a ty alts)
+    FcPAlts alts -> FcPAlts (substVar a ty alts)
 
-instance SubstVar FcTyVar FcType (FcAAlt a) where
+instance SubstVar FcTyVar FcType FcOptAAlt where
+  substVar a ty (FcAAlt pat tm) = FcAAlt pat (substVar a ty tm)
+instance SubstVar FcTyVar FcType FcPreAAlt where
   substVar a ty (FcAAlt pat tm) = FcAAlt pat (substVar a ty tm)
 
-instance SubstVar FcTyVar FcType (FcPAlt a) where
+instance SubstVar FcTyVar FcType FcOptPAlt where
+  substVar a ty (FcPAlt lit tm) = FcPAlt lit (substVar a ty tm)
+instance SubstVar FcTyVar FcType FcPrePAlt where
   substVar a ty (FcPAlt lit tm) = FcPAlt lit (substVar a ty tm)
 
 -- * Target Language SubstVar Instances (Term Substitution)
+-- ** Optimizer syntax
 -- ------------------------------------------------------------------------------
 
--- | Substitute a term variable for a term in a term
-instance SubstVar FcTmVar (FcTerm a) (FcTerm a) where  
-  substVar x xtm
-    | fcPhase == Opt = \case
-      -- Opt
+-- | Substitute a term variable for an optimizer term in an optimizer term
+instance SubstVar FcTmVar FcOptTerm FcOptTerm where  
+  substVar x xtm = \case
       FcOptTmVar y
-        | x == y         -> xtm
-        | otherwise      -> FcOptTmVar y
-      FcOptTmPrim tm     -> FcOptTmPrim tm
-      FcOptTmAbs ab      -> FcOptTmAbs (substVar x xtm ab)
-      FcOptTmApp tm1 tm2 -> FcOptTmApp (substVar x xtm tm1) (substVar x xtm tm2)
-      FcOptTmTyAbs a tm  -> FcOptTmTyAbs a (substVar x xtm tm)
-      FcOptTmTyApp tm ty -> FcOptTmTyApp (substVar x xtm tm) ty
-      FcOptTmDataCon dc  -> FcOptTmDataCon dc
-      -- Pre
-      -- FcPreTmVarApp x ats -> FcPreTmVarApp x ats
-      -- FcPreTmDCApp dc ats -> FcPreTmDCApp dc ats
-      -- FcPreTmPApp  op ats -> FcPreTmPApp  op ats
-      -- FcPreTmTyAbs as tm -> FcPreTmTyAbs as (substVar x xtm tm)
-      -- Univ
-      FcTmLet bind tm  -> FcTmLet (substVar x xtm bind) (substVar x xtm tm)
-      FcTmCase tm alts -> FcTmCase (substVar x xtm tm) (substVar x xtm alts)
+        | x == y            -> xtm
+        | otherwise         -> FcOptTmVar y
+      FcOptTmPrim tm      -> FcOptTmPrim tm
+      FcOptTmAbs y ty tm  
+        | x == y            -> error "substFcTmVarInTm: Shadowing (abs)"
+        | otherwise         -> FcOptTmAbs y ty (substVar x xtm tm)
+      FcOptTmApp tm1 tm2  -> FcOptTmApp (substVar x xtm tm1) (substVar x xtm tm2)
+      FcOptTmTyAbs a tm   -> FcOptTmTyAbs a (substVar x xtm tm)
+      FcOptTmTyApp tm ty  -> FcOptTmTyApp (substVar x xtm tm) ty
+      FcOptTmDataCon dc   -> FcOptTmDataCon dc
+      FcOptTmLet bind tm  -> FcOptTmLet (substVar x xtm bind) (substVar x xtm tm)
+      FcOptTmCase tm alts -> FcOptTmCase (substVar x xtm tm) (substVar x xtm alts)
 
 -- | Substitute a term variable for a term in a value binding
-instance SubstVar FcTmVar (FcTerm Opt) (FcBind Opt) where
-  substVar x xtm (FcOptBind y ty tm)
+instance SubstVar FcTmVar FcOptTerm FcOptBind where
+  substVar x xtm (FcBind y ty tm)
     | x == y    = error "substFcTmVarInTm: Shadowing (let)"
-    | otherwise = FcOptBind y ty (substVar x xtm tm)
-  -- substVar x xtm (FcPreBind y ty ab)
-  --   | x == y    = error "substFcTmVarInTm: Shadowing (let)"
-  --   | otherwise = FcPreBind y ty (substVar x xtm ab)
-
-instance SubstVar FcTmVar (FcTerm Opt) (FcAbs Opt) where
-  substVar x xtm (FcOptAbs y ty tm)
-    | x == y      = error "substFcTmVarInTm: Shadowing (tmabs)"
-    | otherwise   = FcOptAbs y ty (substVar x xtm tm)
-  -- substVar x xtm (FcPreAbs ys tys tm)
-  --   | x `elem` ys = error "substFcTmVarInTm: Shadowing (letabs)"
-  --   | otherwise   = FcPreAbs ys tys (substVar x xtm tm)
+    | otherwise = FcBind y ty (substVar x xtm tm)
 
 -- | Substitute a term variable for a term in a case alternative
-instance SubstVar FcTmVar (FcTerm Opt) (FcAlts Opt) where
+instance SubstVar FcTmVar FcOptTerm FcOptAlts where
   substVar x xtm (FcAAlts alts) = FcAAlts (substVar x xtm alts)
   substVar x xtm (FcPAlts alts) = FcPAlts (substVar x xtm alts)
 
-instance SubstVar FcTmVar (FcTerm Opt) (FcAAlt Opt) where
+instance SubstVar FcTmVar FcOptTerm FcOptAAlt where
   substVar x xtm (FcAAlt (FcConPat dc xs) tm)
     | not (distinct xs) = error "substFcTmVarInAlt: Variables in pattern are not distinct" -- extra redundancy for safety
     | any (==x) xs      = error "substFcTmVarInAlt: Shadowing"
     | otherwise         = FcAAlt (FcConPat dc xs) (substVar x xtm tm)    
 
-instance SubstVar FcTmVar (FcTerm Opt) (FcPAlt Opt) where
+instance SubstVar FcTmVar FcOptTerm FcOptPAlt where
   substVar x xtm (FcPAlt lit tm) = FcPAlt lit (substVar x xtm tm)
 
+-- ** Preprocessed syntax
+-- ------------------------------------------------------------------------------
+
 -- | Substitute one variable for another in a term (preprocessed syntax disallows variables as terms)
-instance SubstVar FcTmVar FcTmVar (FcTerm Pre) where
-  substVar x y 
-    | fcPhase == Pre = \case
+instance SubstVar FcTmVar FcTmVar FcPreTerm where
+  substVar x y = \case
       FcPreTmVarApp z ats 
-        | x == z    -> FcPreTmVarApp y (substVar x y ats)
-        | otherwise -> FcPreTmVarApp z (substVar x y ats)
+        | x == z            -> FcPreTmVarApp y (substVar x y ats)
+        | otherwise         -> FcPreTmVarApp z (substVar x y ats)
       FcPreTmDCApp dc ats -> FcPreTmDCApp dc (substVar x y ats)
       FcPreTmPApp  op ats -> FcPreTmPApp  op (substVar x y ats)
       FcPreTmTyAbs as tm  -> FcPreTmTyAbs as (substVar x y tm)
-      FcTmLet bind tm -> FcTmLet (substVar x y bind) (substVar x y tm)
-      FcTmCase tm alts -> FcTmCase (substVar x y tm) (substVar x y alts)
-    | otherwise = undefined
+      FcPreTmLet bind tm  -> FcPreTmLet (substVar x y bind) (substVar x y tm)
+      FcPreTmCase tm alts -> FcPreTmCase (substVar x y tm) (substVar x y alts)
 
 instance SubstVar FcTmVar FcTmVar FcAtom where
   substVar x y (FcAtVar z) 
     | x == z = FcAtVar y
-  substVar x y at = at
+  substVar _ _ at = at
 
-instance SubstVar FcTmVar FcTmVar (FcBind Pre) where
-  substVar x y (FcPreBind z ty ab)
+instance SubstVar FcTmVar FcTmVar FcPreBind where
+  substVar x y (FcBind z ty ab)
     | x == z    = error "substFcTmVarInTm: Shadowing (let)"
-    | otherwise = FcPreBind z ty (substVar x y ab)
+    | otherwise = FcBind z ty (substVar x y ab)
 
-instance SubstVar FcTmVar FcTmVar (FcAbs Pre) where
+instance SubstVar FcTmVar FcTmVar FcPreAbs where
   substVar x y (FcPreAbs zs tys tm)
     | x `elem` zs = error "substFcTmVarInTm: Shadowing (letabs)"
     | otherwise   = FcPreAbs zs tys (substVar x y tm)
 
-instance SubstVar FcTmVar FcTmVar (FcAlts Pre) where
+instance SubstVar FcTmVar FcTmVar FcPreAlts where
   substVar x y (FcAAlts alts) = FcAAlts (substVar x y alts)
   substVar x y (FcPAlts alts) = FcPAlts (substVar x y alts)
 
-instance SubstVar FcTmVar FcTmVar (FcAAlt Pre) where
+instance SubstVar FcTmVar FcTmVar FcPreAAlt where
   substVar x y (FcAAlt (FcConPat dc xs) tm)
     | not (distinct xs) = error "substFcTmVarInAlt: Variables in pattern are not distinct" -- extra redundancy for safety
-    | any (==x) xs      = error "substFcTmVarInAlt: Shadowing"
+    | x `elem` xs       = error "substFcTmVarInAlt: Shadowing"
     | otherwise         = FcAAlt (FcConPat dc xs) (substVar x y tm)
 
-instance SubstVar FcTmVar FcTmVar (FcPAlt Pre) where
+instance SubstVar FcTmVar FcTmVar FcPrePAlt where
   substVar x y (FcPAlt lit tm) = FcPAlt lit (substVar x y tm)
 
 -- ------------------------------------------------------------------------------
@@ -354,27 +352,49 @@ type FcTySubst = Sub FcTyVar FcType
 substFcTyInTy :: FcTySubst -> FcType -> FcType
 substFcTyInTy = sub_rec
 
--- | Apply a type substitution to a term
-substFcTyInTm :: FcTySubst -> (FcTerm a) -> (FcTerm a)
-substFcTyInTm = sub_rec
+-- | Apply a type substitution to an optimizer term
+substFcTyInOptTm :: FcTySubst -> FcOptTerm -> FcOptTerm
+substFcTyInOptTm = sub_rec
+
+-- | Apply a type substitution to a preprocessed term
+substFcTyInPreTm :: FcTySubst -> FcPreTerm -> FcPreTerm
+substFcTyInPreTm = sub_rec
 
 -- | Apply a type substitution to a case alternative
-substFcTyInAlt :: FcTySubst -> (FcAlts a) -> (FcAlts a)
-substFcTyInAlt = sub_rec -- XXX: subst (FcAlt p tm) = FcAlt p (substFcTyInTm subst tm)
+substFcTyInOptAlt :: FcTySubst -> FcOptAlts -> FcOptAlts
+substFcTyInOptAlt = sub_rec -- XXX: subst (FcAlt p tm) = FcAlt p (substFcTyInTm subst tm)
   -- GEORGE: Now the patterns do not bind type variables so we don't have to check for shadowing here.
 
+-- | Apply a type substitution to a case alternative
+substFcTyInPreAlt :: FcTySubst -> FcPreAlts -> FcPreAlts
+substFcTyInPreAlt = sub_rec -- XXX: subst (FcAlt p tm) = FcAlt p (substFcTyInTm subst tm)
+
 -- * System F Term Substitution
+-- ** Optimizer term substitution
 -- ------------------------------------------------------------------------------
 
-type (FcTmSubst a) = Sub FcTmVar (FcTerm a)
+type FcOptTmSubst = Sub FcTmVar FcOptTerm
 
 -- | Apply a term substitution to a term
-substFcTmInTm :: (FcTmMarker a) => (FcTmSubst a) -> (FcTerm a) -> (FcTerm a)
-substFcTmInTm = sub_rec
+substFcOptTmInTm :: FcOptTmSubst -> FcOptTerm -> FcOptTerm
+substFcOptTmInTm = sub_rec
 
 -- | Apply a term substitution to a case alternative
-substFcTmInAlt :: (FcTmMarker a) => (FcTmSubst a) -> (FcAlts a) -> (FcAlts a)
-substFcTmInAlt = sub_rec
+substFcOptTmInAlt :: FcOptTmSubst -> FcOptAlts -> FcOptAlts
+substFcOptTmInAlt = sub_rec
+
+-- ** Optimizer term substitution
+-- ------------------------------------------------------------------------------
+
+type FcPreTmSubst = Sub FcTmVar FcTmVar
+
+-- | Apply a var substitution to a term
+substFcPreVarInTm :: FcPreTmSubst -> FcPreTerm -> FcPreTerm
+substFcPreVarInTm = sub_rec
+
+-- | Apply a var substitution to a case alternative
+substFcPreVarInAlt :: FcPreTmSubst -> FcPreAlts -> FcPreAlts
+substFcPreVarInAlt = sub_rec
 
 -- * The Subst class
 -- ------------------------------------------------------------------------------
@@ -435,56 +455,64 @@ instance FreshenLclBndrs FcType where
   freshenLclBndrs (FcTyCon tc)      = return (FcTyCon tc)
 
 -- | Freshen the (type + term) binders of a System F term
-instance (FcTmMarker a) => FreshenLclBndrs (FcTerm a) where
+instance FreshenLclBndrs FcOptTerm where
   -- Opt
   freshenLclBndrs (FcOptTmVar x)       = return (FcOptTmVar x)
   freshenLclBndrs (FcOptTmPrim tm)     = return (FcOptTmPrim tm)
-  freshenLclBndrs (FcOptTmAbs ab)      = FcOptTmAbs <$> freshenLclBndrs ab
+  freshenLclBndrs (FcOptTmAbs _ ty tm) = freshFcTmVar >>= \y -> 
+    FcOptTmAbs y <$> freshenLclBndrs ty <*> freshenLclBndrs tm
   freshenLclBndrs (FcOptTmApp tm1 tm2) = FcOptTmApp <$> freshenLclBndrs tm1 <*> freshenLclBndrs tm2
   freshenLclBndrs (FcOptTmTyAbs a tm)  = freshFcTyVar (kindOf a) >>= \b ->
     FcOptTmTyAbs b <$> freshenLclBndrs (substVar a (FcTyVar b) tm)
   freshenLclBndrs (FcOptTmTyApp tm ty) = FcOptTmTyApp <$> freshenLclBndrs tm <*> freshenLclBndrs ty
   freshenLclBndrs (FcOptTmDataCon dc)  = return (FcOptTmDataCon dc)
-  -- Pre
+  freshenLclBndrs (FcOptTmLet (FcBind x ty tm1) tm2) = freshFcTmVar >>= \y ->
+    FcOptTmLet <$> (FcBind y <$> freshenLclBndrs ty
+              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm1))
+              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm2)
+  freshenLclBndrs (FcOptTmCase tm alts) = FcOptTmCase <$> freshenLclBndrs tm <*> freshenLclBndrs alts
+
+instance FreshenLclBndrs FcPreTerm where
   freshenLclBndrs (FcPreTmVarApp x ats) = return (FcPreTmVarApp x ats)
   freshenLclBndrs (FcPreTmDCApp dc ats) = return (FcPreTmDCApp dc ats)
   freshenLclBndrs (FcPreTmPApp  op ats) = return (FcPreTmPApp  op ats)
-  freshenLclBndrs (FcPreTmTyAbs as tm) = mapM freshFcTyVar (map kindOf as) >>= \bs ->
+  freshenLclBndrs (FcPreTmTyAbs as tm)  = mapM (freshFcTyVar . kindOf) as >>= \bs ->
     FcPreTmTyAbs bs <$> freshenLclBndrs (substVar as (map FcTyVar bs) tm)
-  -- Univ
-  freshenLclBndrs (FcTmLet (FcOptBind x ty tm1) tm2) = freshFcTmVar >>= \y ->
-    FcTmLet <$> (FcOptBind y <$> freshenLclBndrs ty
-              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm1))
-              <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm2)
-  freshenLclBndrs (FcTmLet (FcPreBind x ty ab) tm)   = freshFcTmVar >>= \y ->
-    FcTmLet <$> (FcPreBind y <$> freshenLclBndrs ty
+  freshenLclBndrs (FcPreTmLet (FcBind x ty ab) tm)   = freshFcTmVar >>= \y ->
+    FcPreTmLet <$> (FcBind y <$> freshenLclBndrs ty
               <*> freshenLclBndrs (substVar x y ab))
               <*> freshenLclBndrs (substVar x y tm) 
-  freshenLclBndrs (FcTmCase tm alts) = FcTmCase <$> freshenLclBndrs tm <*> freshenLclBndrs alts
+  freshenLclBndrs (FcPreTmCase tm alts) = FcPreTmCase <$> freshenLclBndrs tm <*> freshenLclBndrs alts
 
 -- Note: FreshenLclBndrs instance for FcBind is absorbed into Let
 
 -- | Freshen the (type + term) binders of a System F lambda abstraction
-instance (FcTmMarker a) => FreshenLclBndrs (FcAbs a) where
-  freshenLclBndrs (FcOptAbs x  ty  tm) = freshFcTmVar >>= \y ->
-    FcOptAbs y  <$> freshenLclBndrs ty  <*> freshenLclBndrs (substVar x (FcOptTmVar y) tm)
+instance FreshenLclBndrs FcPreAbs where
   freshenLclBndrs (FcPreAbs xs tys tm) = replicateM (length xs) freshFcTmVar >>= \ys ->
     FcPreAbs ys <$> freshenLclBndrs tys <*> freshenLclBndrs (substVar xs ys tm)
 
-instance (FcTmMarker a) => FreshenLclBndrs (FcAlts a) where
+instance FreshenLclBndrs FcOptAlts where
+  freshenLclBndrs (FcAAlts alts) = FcAAlts <$> mapM freshenLclBndrs alts
+  freshenLclBndrs (FcPAlts alts) = FcPAlts <$> mapM freshenLclBndrs alts
+
+instance FreshenLclBndrs FcPreAlts where
   freshenLclBndrs (FcAAlts alts) = FcAAlts <$> mapM freshenLclBndrs alts
   freshenLclBndrs (FcPAlts alts) = FcPAlts <$> mapM freshenLclBndrs alts
 
 -- | Freshen the (type + term) binders of a System F case alternative
-instance FcTmMarker a => FreshenLclBndrs (FcAAlt a) where
-  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Opt = do {
-      ys  <- mapM (\_ -> freshFcTmVar) xs;
+instance FreshenLclBndrs FcOptAAlt where
+  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) = do {
+      ys  <- replicateM (length xs) freshFcTmVar;
       tm' <- freshenLclBndrs $ substVar xs (map FcOptTmVar ys) tm;
       return (FcAAlt (FcConPat dc ys) tm')}
-  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) | fcPhase == Pre = do {
+instance FreshenLclBndrs FcPreAAlt where
+  freshenLclBndrs (FcAAlt (FcConPat dc xs) tm) = do {
       ys <- replicateM (length xs) freshFcTmVar;
       tm' <- freshenLclBndrs $ substVar xs ys tm;
       return (FcAAlt (FcConPat dc ys) tm')}
 
-instance (FcTmMarker a) => FreshenLclBndrs (FcPAlt a) where
-  freshenLclBndrs (FcPAlt lit tm) = FcPAlt lit <$> (freshenLclBndrs tm)
+instance FreshenLclBndrs FcOptPAlt where
+  freshenLclBndrs (FcPAlt lit tm) = FcPAlt lit <$> freshenLclBndrs tm
+
+instance FreshenLclBndrs FcPrePAlt where
+  freshenLclBndrs (FcPAlt lit tm) = FcPAlt lit <$> freshenLclBndrs tm
