@@ -12,14 +12,14 @@ The main differences are:
 -}
 
 {-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE PolyKinds             #-}
 
 module Optimizer.FcTypes where
 
@@ -192,95 +192,106 @@ data FcDataDecl = FcDataDecl { fdata_decl_tc   :: FcTyCon                 -- ^ T
                              , fdata_decl_cons :: [(FcDataCon, [FcType])] -- ^ Data Constructors
                              }
 
--- | Program
-data FcProgram a = FcPgmDataDecl FcDataDecl (FcProgram a)     -- ^ Data Declaration
-                 | FcPgmValDecl  (FcBind a) (FcProgram a)     -- ^ Value Binding
-                 | FcPgmTerm (FcTerm a)                       -- ^ Term
+-- | Program, parametrised in the type of term and the type of term bound by a value binding
+data FcProgram a b where
+  FcPgmDataDecl :: FcDataDecl -> FcProgram a b -> FcProgram a b    -- ^ Data Declaration
+  FcPgmValDecl :: FcBind b -> FcProgram a b -> FcProgram a b       -- ^ Value Binding
+  FcPgmTerm :: a -> FcProgram a b                                  -- ^ Term
 
-type FcOptProgram = FcProgram Opt
-type FcPreProgram = FcProgram Pre
+type FcOptProgram = FcProgram FcOptTerm FcOptTerm
+type FcPreProgram = FcProgram FcPreTerm FcPreAbs
 
 -- * Terms
 -- ----------------------------------------------------------------------------
 
--- | Optimizer marker type
-data Opt = Opt
-  deriving Eq
--- | Preprocessed marker type
-data Pre = Pre
-  deriving Eq
+data FcOptTerm 
+  = FcOptTmVar FcTmVar                       -- ^ Variable
+  | FcOptTmPrim PrimTm                       -- ^ Primitive
+  | FcOptTmAbs FcTmVar FcType FcOptTerm      -- ^ Lambda abstraction
+  | FcOptTmApp FcOptTerm FcOptTerm           -- ^ Application
+  | FcOptTmTyAbs FcTyVar FcOptTerm           -- ^ Type abstraction
+  | FcOptTmTyApp FcOptTerm FcType            -- ^ Type application
+  | FcOptTmDataCon FcDataCon                 -- ^ Data constructor
+  | FcOptTmLet FcOptBind FcOptTerm           -- ^ let bind in term
+  | FcOptTmCase FcOptTerm (FcAlts FcOptTerm) -- ^ case term of alts
 
-class Eq a => FcTmMarker a where
-  fcPhase :: a
-instance FcTmMarker Opt where
-  fcPhase = Opt
-instance FcTmMarker Pre where
-  fcPhase = Pre
+data FcPreTerm
+  = FcPreTmVarApp FcTmVar   [FcAtom]         -- ^ Application on variable
+  | FcPreTmDCApp  FcDataCon [FcAtom]         -- ^ Application on data constructor (saturated)
+  | FcPreTmPApp   PrimOp    [FcAtom]         -- ^ Application on primitive operator (saturated)
+  | FcPreTmTyAbs [FcTyVar] FcPreTerm         -- ^ (Multiple) type abstraction
+  | FcPreTmLet FcPreBind FcPreTerm           -- ^ let bind in term
+  | FcPreTmCase FcPreTerm (FcAlts FcPreTerm) -- ^ case term of alts
 
 data FcTerm a where
-  -- Optimizer language concepts
-  -- ^ Variable
-  FcOptTmVar :: FcTmVar -> FcOptTerm
-  -- ^ Primitive
-  FcOptTmPrim :: PrimTm -> FcOptTerm
-  -- ^ Lambda abstraction
-  FcOptTmAbs :: FcAbs Opt -> FcOptTerm
-  -- ^ Application
-  FcOptTmApp :: FcOptTerm -> FcOptTerm -> FcOptTerm
-  -- ^ Type abstraction
-  FcOptTmTyAbs :: FcTyVar -> FcOptTerm -> FcOptTerm
-  -- ^ Type application
-  FcOptTmTyApp :: FcOptTerm -> FcType -> FcOptTerm
-  -- ^ Data constructor
-  FcOptTmDataCon :: FcDataCon -> FcOptTerm
+  -- -- Optimizer language concepts
+  -- -- ^ Variable
+  -- FcOptTmVar :: FcTmVar -> FcOptTerm
+  -- -- ^ Primitive
+  -- FcOptTmPrim :: PrimTm -> FcOptTerm
+  -- -- ^ Lambda abstraction
+  -- FcOptTmAbs :: FcOptAbs -> FcOptTerm
+  -- -- ^ Application
+  -- FcOptTmApp :: FcOptTerm -> FcOptTerm -> FcOptTerm
+  -- -- ^ Type abstraction
+  -- FcOptTmTyAbs :: FcTyVar -> FcOptTerm -> FcOptTerm
+  -- -- ^ Type application
+  -- FcOptTmTyApp :: FcOptTerm -> FcType -> FcOptTerm
+  -- -- ^ Data constructor
+  -- FcOptTmDataCon :: FcDataCon -> FcOptTerm
   -- Preprocessed language concepts
   -- ^ Application on variable
-  FcPreTmVarApp :: FcTmVar   -> [FcAtom] -> FcPreTerm
-  -- ^ Application on data constructor (saturated)
-  FcPreTmDCApp  :: FcDataCon -> [FcAtom] -> FcPreTerm
-  -- ^ Application on primitive operator (saturated)
-  FcPreTmPApp   :: PrimOp    -> [FcAtom] -> FcPreTerm
-  -- ^ (Multiple) type abstraction
-  FcPreTmTyAbs :: [FcTyVar] -> FcPreTerm -> FcPreTerm
-  -- Universal concepts
-  -- ^ Let binding
-  FcTmLet  :: FcBind a -> FcTerm a -> FcTerm a
-  -- ^ Case statement
-  FcTmCase :: FcTerm a -> FcAlts a -> FcTerm a
-
-type FcOptTerm = FcTerm Opt
-type FcPreTerm = FcTerm Pre
+  -- FcPreTmVarApp :: FcTmVar   -> [FcAtom] -> FcPreTerm
+  -- -- ^ Application on data constructor (saturated)
+  -- FcPreTmDCApp  :: FcDataCon -> [FcAtom] -> FcPreTerm
+  -- -- ^ Application on primitive operator (saturated)
+  -- FcPreTmPApp   :: PrimOp    -> [FcAtom] -> FcPreTerm
+  -- -- ^ (Multiple) type abstraction
+  -- FcPreTmTyAbs :: [FcTyVar] -> FcPreTerm -> FcPreTerm
+  -- -- Universal concepts
+  -- -- ^ Let binding
+  -- FcTmLet  :: FcBind a -> FcTerm a -> FcTerm a
+  -- -- ^ Case statement
+  -- FcTmCase :: FcTerm a -> FcAlts a -> FcTerm a
 
 -- | Value binding
-data FcBind a where 
-  -- ^ Optimizer value binding
-  FcOptBind :: { fval_bind_opt_var :: FcTmVar
-               , fval_bind_opt_ty  :: FcType 
-               , fval_bind_opt_tm  :: FcOptTerm 
-               } -> (FcBind Opt)
-  -- ^ Preprocessed value binding
-  FcPreBind :: { fval_bind_pre_var :: FcTmVar
-               , fval_bind_pre_ty  :: FcType 
-               , fval_bind_pre_abs :: FcAbs Pre 
-               } -> (FcBind Pre) 
+data FcBind a where
+  FcBind :: { fval_bind_var :: FcTmVar
+            , fval_bind_ty  :: FcType 
+            , fval_bind_tm  :: a 
+            } -> FcBind a
+
+type FcOptBind = FcBind FcOptTerm -- ^ Optimizer binds regular terms
+type FcPreBind = FcBind FcPreAbs  -- ^ Preprocessed syntax binds abstractions of terms
 
 -- | Lambda abstraction
-data FcAbs a where
-  FcOptAbs ::  FcTmVar  ->  FcType  -> FcOptTerm -> FcAbs Opt
-  FcPreAbs :: [FcTmVar] -> [FcType] -> FcPreTerm -> FcAbs Pre
+data FcPreAbs = FcPreAbs [FcTmVar] [FcType] FcPreTerm
 
 -- | Atom
 data FcAtom = FcAtVar FcTmVar 
             | FcAtLit PrimLit 
             | FcAtType FcType
 
-data FcAlts a = FcAAlts [FcAAlt a]  -- ^ Algebraic alternatives
-              | FcPAlts [FcPAlt a]  -- ^ Primitive alternatives
+data FcAlts a where
+  FcAAlts :: [FcAAlt a] -> FcAlts a  -- ^ Algebraic alternatives
+  FcPAlts :: [FcPAlt a] -> FcAlts a  -- ^ Primitive alternatives
+
+type FcOptAlts = FcAlts FcOptTerm
+type FcPreAlts = FcAlts FcPreTerm
 
 -- | Pattern over ADT
-data FcAAlt a = FcAAlt  FcConPat (FcTerm a)
+data FcAAlt a where
+  FcAAlt :: FcConPat -> a -> FcAAlt a
+
+type FcOptAAlt = FcAAlt FcOptTerm
+type FcPreAAlt = FcAAlt FcPreTerm
+
 -- | Pattern with primitive literal
-data FcPAlt a = FcPAlt  PrimLit  (FcTerm a)
+data FcPAlt a where
+  FcPAlt :: PrimLit -> a -> FcPAlt a
+
+type FcOptPAlt = FcPAlt FcOptTerm
+type FcPrePAlt = FcPAlt FcPreTerm
 
 -- | Data constructor pattern
 data FcConPat = FcConPat FcDataCon [FcTmVar]
@@ -294,30 +305,32 @@ instance ContainsFreeTyVars FcType FcTyVar where
   ftyvsOf (FcTyApp ty1 ty2) = ftyvsOf ty1 ++ ftyvsOf ty2
   ftyvsOf (FcTyCon _)      = []
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcTerm a) FcTyVar where
-  -- Opt
+instance ContainsFreeTyVars FcOptTerm FcTyVar where
   ftyvsOf (FcOptTmVar  _)        = []
   ftyvsOf (FcOptTmPrim _)        = []
-  ftyvsOf (FcOptTmAbs ab)        = ftyvsOf ab
+  ftyvsOf (FcOptTmAbs _ ty tm)   = ftyvsOf ty ++ ftyvsOf tm
   ftyvsOf (FcOptTmApp tm1 tm2)   = ftyvsOf tm1 ++ ftyvsOf tm2
   ftyvsOf (FcOptTmTyAbs a tm)    = ftyvsOf tm \\ [a]
   ftyvsOf (FcOptTmTyApp tm ty)   = ftyvsOf tm ++ ftyvsOf ty
-  ftyvsOf (FcOptTmDataCon _)    = []
-  -- Pre
+  ftyvsOf (FcOptTmDataCon _)     = []
+  ftyvsOf (FcOptTmLet bd tm)     = ftyvsOf bd ++ ftyvsOf tm
+  ftyvsOf (FcOptTmCase tm alts)  = ftyvsOf tm ++ ftyvsOf alts
+
+instance ContainsFreeTyVars FcPreTerm FcTyVar where
   ftyvsOf (FcPreTmVarApp _ ats) = ftyvsOf ats
   ftyvsOf (FcPreTmDCApp  _ ats) = ftyvsOf ats
   ftyvsOf (FcPreTmPApp   _ ats) = ftyvsOf ats
   ftyvsOf (FcPreTmTyAbs as tm)  = ftyvsOf tm \\ as
-  -- Universal
-  ftyvsOf (FcTmLet bd tm)       = ftyvsOf bd ++ ftyvsOf tm
-  ftyvsOf (FcTmCase tm alts)    = ftyvsOf tm ++ ftyvsOf alts
+  ftyvsOf (FcPreTmLet bd tm)    = ftyvsOf bd ++ ftyvsOf tm
+  ftyvsOf (FcPreTmCase tm alts) = ftyvsOf tm ++ ftyvsOf alts
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcBind a) FcTyVar where
-  ftyvsOf (FcOptBind _ a tm) = ftyvsOf a ++ ftyvsOf tm
-  ftyvsOf (FcPreBind _ a ab) = ftyvsOf a ++ ftyvsOf ab
+instance ContainsFreeTyVars FcOptBind FcTyVar where
+  ftyvsOf (FcBind _ a tm) = ftyvsOf a ++ ftyvsOf tm
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAbs a) FcTyVar where
-  ftyvsOf (FcOptAbs _ a  tm) = ftyvsOf a  ++ ftyvsOf tm
+instance ContainsFreeTyVars FcPreBind FcTyVar where
+  ftyvsOf (FcBind _ a ab) = ftyvsOf a ++ ftyvsOf ab
+
+instance ContainsFreeTyVars FcPreAbs FcTyVar where
   ftyvsOf (FcPreAbs _ as tm) = ftyvsOf as ++ ftyvsOf tm
 
 instance ContainsFreeTyVars FcAtom FcTyVar where
@@ -325,14 +338,24 @@ instance ContainsFreeTyVars FcAtom FcTyVar where
   ftyvsOf FcAtLit {} = []
   ftyvsOf (FcAtType  ty) = ftyvsOf ty
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAlts a) FcTyVar where
+instance ContainsFreeTyVars (FcAlts FcOptTerm) FcTyVar where
   ftyvsOf (FcAAlts alts) = ftyvsOf alts
   ftyvsOf (FcPAlts alts) = ftyvsOf alts
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcAAlt a) FcTyVar where
+instance ContainsFreeTyVars (FcAlts FcPreTerm) FcTyVar where
+  ftyvsOf (FcAAlts alts) = ftyvsOf alts
+  ftyvsOf (FcPAlts alts) = ftyvsOf alts
+
+instance ContainsFreeTyVars (FcAAlt FcOptTerm) FcTyVar where
   ftyvsOf (FcAAlt _ tm) = ftyvsOf tm
 
-instance (FcTmMarker a) => ContainsFreeTyVars (FcPAlt a) FcTyVar where
+instance ContainsFreeTyVars (FcAAlt FcPreTerm) FcTyVar where
+  ftyvsOf (FcAAlt _ tm) = ftyvsOf tm
+
+instance ContainsFreeTyVars (FcPAlt FcOptTerm) FcTyVar where
+  ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
+
+instance ContainsFreeTyVars (FcPAlt FcPreTerm) FcTyVar where
   ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
 
 -- * Pretty printing
@@ -380,10 +403,10 @@ instance PrettyPrint FcDataCon where
   needsParens _ = False
 
 -- | Pretty print terms
-instance (FcTmMarker a) => PrettyPrint (FcTerm a) where
+instance PrettyPrint FcOptTerm where
   ppr (FcOptTmVar x)            = ppr x
   ppr (FcOptTmPrim ptm)         = ppr ptm   
-  ppr (FcOptTmAbs b)            = ppr b
+  ppr (FcOptTmAbs x ty tm)      = hang (backslash <> parens (ppr x <+> dcolon <+> ppr ty) <> dot) 2 (ppr tm)
   ppr (FcOptTmApp tm1 tm2)
     | FcOptTmApp   {} <- tm1    = ppr tm1    <+> pprPar tm2
     | FcOptTmTyApp {} <- tm1    = ppr tm1    <+> pprPar tm2
@@ -391,17 +414,10 @@ instance (FcTmMarker a) => PrettyPrint (FcTerm a) where
   ppr (FcOptTmTyAbs tv tm)      = hang (colorDoc yellow (text "/\\") <> ppr tv <> dot) 2 (ppr tm)
   ppr (FcOptTmTyApp tm ty)      = pprPar tm <+> brackets (ppr ty)
   ppr (FcOptTmDataCon dc)       = ppr dc
-  
-  ppr (FcPreTmVarApp var ats)   = foldl (<+>) (ppr var) (map pprPar ats)
-  ppr (FcPreTmDCApp  dc  ats)   = foldl (<+>) (ppr dc ) (map pprPar ats)
-  ppr (FcPreTmPApp   op  ats)   = foldl (<+>) (ppr op ) (map pprPar ats)
-  ppr (FcPreTmTyAbs tvs tm)     = foldr ((<+>) . pprLbd) (ppr tm) tvs
-    where pprLbd a = hang (colorDoc yellow (text "/\\") <> ppr a <> dot) 2 (ppr tm)
-
-  ppr (FcTmLet bind tm)
+  ppr (FcOptTmLet bind tm)
     =  (colorDoc yellow (text "let") <+> ppr bind)
     $$ (colorDoc yellow (text "in" ) <+> ppr tm  )
-  ppr (FcTmCase tm alts)        = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
+  ppr (FcOptTmCase tm alts)        = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
                                        2 (ppr alts)
 
   needsParens FcOptTmVar      {} = False
@@ -411,23 +427,42 @@ instance (FcTmMarker a) => PrettyPrint (FcTerm a) where
   needsParens FcOptTmTyAbs    {} = True
   needsParens FcOptTmTyApp    {} = True
   needsParens FcOptTmDataCon  {} = False
+  needsParens FcOptTmLet      {} = True
+  needsParens FcOptTmCase     {} = True
+
+instance PrettyPrint FcPreTerm where
+  ppr (FcPreTmVarApp var ats)   = foldl (<+>) (ppr var) (map pprPar ats)
+  ppr (FcPreTmDCApp  dc  ats)   = foldl (<+>) (ppr dc ) (map pprPar ats)
+  ppr (FcPreTmPApp   op  ats)   = foldl (<+>) (ppr op ) (map pprPar ats)
+  ppr (FcPreTmTyAbs tvs tm)     = foldr ((<+>) . pprLbd) (ppr tm) tvs
+    where pprLbd a = hang (colorDoc yellow (text "/\\") <> ppr a <> dot) 2 (ppr tm)
+
+  ppr (FcPreTmLet bind tm)
+    =  (colorDoc yellow (text "let") <+> ppr bind)
+    $$ (colorDoc yellow (text "in" ) <+> ppr tm  )
+  ppr (FcPreTmCase tm alts)        = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
+                                       2 (ppr alts)
+
+
   
   needsParens FcPreTmVarApp   {} = True
   needsParens FcPreTmDCApp    {} = True
   needsParens FcPreTmPApp     {} = True
   needsParens FcPreTmTyAbs    {} = True
-  needsParens FcTmLet         {} = True
-  needsParens FcTmCase        {} = True
+  needsParens FcPreTmLet      {} = True
+  needsParens FcPreTmCase     {} = True
 
 -- | Pretty print variable bindings
-instance (FcTmMarker a) => PrettyPrint (FcBind a) where
-  ppr (FcOptBind x ty tm) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr tm))
-  ppr (FcPreBind x ty ab) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr ab))
+instance PrettyPrint FcOptBind where
+  ppr (FcBind x ty tm) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr tm))
+  needsParens _ = False
+
+instance PrettyPrint FcPreBind where
+  ppr (FcBind x ty ab) = ppr x <+> ((colon <+> ppr ty) $$ (equals <+> ppr ab))
   needsParens _ = False
 
 -- | Pretty print lambda abstractions
-instance (FcTmMarker a) => PrettyPrint (FcAbs a) where
-  ppr (FcOptAbs x  ty  tm) = hang (backslash <> parens (ppr x <+> dcolon <+> ppr ty) <> dot) 2 (ppr tm)
+instance PrettyPrint FcPreAbs where
   ppr (FcPreAbs xs tys tm) = hang 
                                (backslash
                                  <>
@@ -445,18 +480,28 @@ instance PrettyPrint FcAtom where
   needsParens _ = False
 
 -- | Pretty print alternatives
-instance (FcTmMarker a) => PrettyPrint (FcAlts a) where
+instance PrettyPrint (FcAlts FcOptTerm) where
+  ppr (FcAAlts alts) = vcat $ map ppr alts
+  ppr (FcPAlts alts) = vcat $ map ppr alts
+  needsParens _      = False 
+instance PrettyPrint (FcAlts FcPreTerm) where
   ppr (FcAAlts alts) = vcat $ map ppr alts
   ppr (FcPAlts alts) = vcat $ map ppr alts
   needsParens _      = False 
 
 -- | Pretty print algebraic alts
-instance (FcTmMarker a) => PrettyPrint (FcAAlt a) where
+instance PrettyPrint (FcAAlt FcOptTerm) where
+  ppr (FcAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
+  needsParens _       = True
+instance PrettyPrint (FcAAlt FcPreTerm) where
   ppr (FcAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
   needsParens _       = True
 
 -- | Pretty print primitive alts
-instance (FcTmMarker a) => PrettyPrint (FcPAlt a) where
+instance PrettyPrint (FcPAlt FcOptTerm) where
+  ppr (FcPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
+  needsParens _       = True
+instance PrettyPrint (FcPAlt FcPreTerm) where
   ppr (FcPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
   needsParens _       = True
 
@@ -479,7 +524,15 @@ instance PrettyPrint FcDataDecl where
   needsParens _ = False
 
 -- | Pretty print programs
-instance (FcTmMarker a) => PrettyPrint (FcProgram a) where
+instance PrettyPrint (FcProgram FcOptTerm FcOptTerm) where
+  ppr (FcPgmDataDecl datadecl pgm) = ppr datadecl $$ ppr pgm
+  ppr (FcPgmValDecl  valbind  pgm) 
+    = colorDoc yellow (text "let") <+> ppr valbind
+    $$ ppr pgm
+  ppr (FcPgmTerm tm)               = ppr tm
+  needsParens _ = False
+
+instance PrettyPrint (FcProgram FcPreTerm FcPreAbs) where
   ppr (FcPgmDataDecl datadecl pgm) = ppr datadecl $$ ppr pgm
   ppr (FcPgmValDecl  valbind  pgm) 
     = colorDoc yellow (text "let") <+> ppr valbind
