@@ -265,6 +265,33 @@ type FcPrePAlt = FcPAlt FcPreTerm
 -- | Data constructor pattern
 data FcConPat = FcConPat FcDataCon [FcTmVar]
 
+-- * Some smart constructors (uncurried variants)
+-- ----------------------------------------------------------------------------
+
+-- | Uncurried version of data constructor FcTmAbs
+fcOptTmAbs :: [(FcTmVar, FcType)] -> FcOptTerm -> FcOptTerm
+fcOptTmAbs binds tm = foldr (uncurry FcOptTmAbs) tm binds
+
+-- | Uncurried version of data constructor FcTmTyAbs
+fcOptTmTyAbs :: [FcTyVar] -> FcOptTerm -> FcOptTerm
+fcOptTmTyAbs tvs tm = foldr FcOptTmTyAbs tm tvs
+
+-- | Uncurried version of data constructor FcTmApp
+fcOptTmApp :: FcOptTerm -> [FcOptTerm] -> FcOptTerm
+fcOptTmApp tm tms = foldl FcOptTmApp tm tms
+
+-- | Uncurried version of data constructor FcTmTyApp
+fcOptTmTyApp :: FcOptTerm -> [FcType] -> FcOptTerm
+fcOptTmTyApp tm tys = foldl FcOptTmTyApp tm tys
+
+-- | Create a data constructor application
+fcOptDataConApp :: FcDataCon -> FcType -> [FcOptTerm] -> FcOptTerm
+fcOptDataConApp dc ty = fcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) ty)
+
+-- | Apply a term to a list of dictionary variables
+fcOptDictApp :: FcOptTerm -> [DictVar] -> FcOptTerm
+fcOptDictApp tm ds = foldl FcOptTmApp tm (map FcOptTmVar ds)
+
 -- * Collecting Free Variables Out Of Objects
 -- ------------------------------------------------------------------------------
 
