@@ -128,7 +128,7 @@ elabHsDataConInfo (HsDCClsInfo _dc as tc super tys fc_dc) = do
   fc_tys <- map snd <$> extendTcCtxTysM as (mapM wfElabPolyTy tys)
   return $ FcDCInfo fc_dc (map rnTyVarToFcTyVar as) fc_tc (fc_sc ++ fc_tys)
 
-buildInitFcAssocs :: TcM (AssocList FcTyCon FcTyConInfo, AssocList FcDataCon FcDataConInfo)
+buildInitFcAssocs :: TcM FcGblEnv
 buildInitFcAssocs = do
   -- Convert the tyCon associations
   tc_infos <- gets tc_env_tc_info
@@ -143,7 +143,7 @@ buildInitFcAssocs = do
     fc_dc_info <- elabHsDataConInfo dc_info
     return (fc_dc, fc_dc_info)
 
-  return (fc_tc_infos, fc_dc_infos)
+  return $ FcGblEnv fc_tc_infos fc_dc_infos
 
 -- * Ensure that some things are not bound in the local context
 -- ------------------------------------------------------------------------------
@@ -457,7 +457,7 @@ elabTmAbs x tm = do
   liftGenM (tmVarNotInTcCtxM x) {- ensure not bound -}
   tv <- freshRnTyVar KStar
   (ty, fc_tm) <- extendCtxTmM x (monoTyToPolyTy (TyVar tv)) $ elabTerm tm
-  let result = FcOptTmAbs (rnTmVarToFcTmVar x) (rnTyVarToFcType tv) fc_tm
+  let result = FcOptTmAbs [(rnTmVarToFcTmVar x,rnTyVarToFcType tv)] fc_tm
   return (mkRnArrowTy [TyVar tv] ty, result)
 
 -- | Elaborate a term application
@@ -467,7 +467,7 @@ elabTmApp tm1 tm2 = do
   (ty2, fc_tm2) <- elabTerm tm2
   a <- TyVar <$> freshRnTyVar KStar
   storeEqCs [mkRnArrowTy [ty2] a :~: ty1]
-  return (a, FcOptTmApp fc_tm1 fc_tm2)
+  return (a, FcOptTmApp fc_tm1 [fc_tm2])
 
 -- | Elaborate a let binding (monomorphic, recursive)
 elabTmLet :: RnTmVar -> RnTerm -> RnTerm -> GenM (RnMonoTy, FcOptTerm)
@@ -679,10 +679,10 @@ leftEntails untch (d_g :| ctr_g) (d_w :| cls_ct_w) = do
     constructEvFcTerm :: HsTySubst -> FcOptTerm -> [RnTyVarWithKind] -> [DictVar] -> TcM FcOptTerm
     constructEvFcTerm _ty_subst fc_tm []     []     = return fc_tm
     constructEvFcTerm  ty_subst fc_tm []     (d:ds) =
-      constructEvFcTerm ty_subst (FcOptTmApp fc_tm (FcOptTmVar d)) [] ds
+      constructEvFcTerm ty_subst (FcOptTmApp fc_tm [FcOptTmVar d]) [] ds
     constructEvFcTerm  ty_subst fc_tm (a:as) ds     =
       elabMonoTy (substInMonoTy ty_subst (TyVar (labelOf a))) >>= \subst_fc_ty ->
-      constructEvFcTerm ty_subst (FcOptTmTyApp fc_tm subst_fc_ty) as ds
+      constructEvFcTerm ty_subst (FcOptTmTyApp fc_tm [subst_fc_ty]) as ds
 
 -- | Unify two annotated class constraints (check that they have the same class
 -- name and that the arguments can be unified). Return the resulting type and
@@ -733,8 +733,8 @@ elabClsDecl (ClsD rn_cs cls (a :| _) method method_ty) = do
 
     xs <- replicateM (length rn_cs + 1) freshFcTmVar               -- n+1 fresh variables
 
-    let fc_tm = FcOptTmTyAbs (rnTyVarToFcTyVar a) $
-                  FcOptTmAbs da fc_cls_head $
+    let fc_tm = FcOptTmTyAbs [rnTyVarToFcTyVar a] $
+                  FcOptTmAbs [(da, fc_cls_head)] $
                     FcOptTmCase (FcOptTmVar da) $
                       FcAAlts 
                         [FcAAlt (FcConPat dc xs) (FcOptTmVar (xs !! i))]
@@ -1056,7 +1056,7 @@ elabProgram theory (PgmFunc func_decl pgm) = do
 -- ------------------------------------------------------------------------------
 
 hsElaborate :: RnEnv -> UniqueSupply -> RnProgram
-            -> (Either String ((((FcOptProgram, RnPolyTy, FullTheory), (AssocList FcTyCon FcTyConInfo, AssocList FcDataCon FcDataConInfo)), UniqueSupply), TcEnv),
+            -> (Either String ((((FcOptProgram, RnPolyTy, FullTheory), FcGblEnv), UniqueSupply), TcEnv),
                 Trace)
 hsElaborate rn_gbl_env us pgm = runWriter
                               $ runExceptT

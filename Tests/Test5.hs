@@ -3,9 +3,9 @@
 
 data Bool = True | False
 
-f :: Bool -> Int#
+f :: Int# -> Int#
   = \x. case x of
-  	True -> -8
-  	False -> 2
+  	2 -> -8
+  	5 -> 2
 
--# (+# 1 (f False)) (*# (f True) (f False))
+-# (+# 1 (f 2)) (*# (f 4) (f 8))

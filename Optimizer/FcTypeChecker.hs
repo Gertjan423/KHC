@@ -3,9 +3,10 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
 
-module Optimizer.FcTypeChecker (fcTypeCheck) where
+module Optimizer.FcTypeChecker (fcOptElaborate) where
 
 import Optimizer.FcTypes
+import Backend.STGTypes
 
 import Utils.Substitution
 import Utils.Var
@@ -23,21 +24,11 @@ import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
+import Data.Bifunctor (second)
 
 -- * Type checking monad
 -- ----------------------------------------------------------------------------
 type FcM = UniqueSupplyT (ReaderT FcCtx (StateT FcGblEnv (ExceptT String (Writer Trace))))
-
-data FcGblEnv = FcGblEnv { fc_env_tc_info :: AssocList FcTyCon   FcTyConInfo
-                         , fc_env_dc_info :: AssocList FcDataCon FcDataConInfo
-                         }
-
-instance PrettyPrint FcGblEnv where
-  ppr (FcGblEnv tc_infos dc_infos)
-    = braces $ vcat $ punctuate comma
-    [ text "fc_env_tc_info" <+> colon <+> ppr tc_infos
-    , text "fc_env_dc_info" <+> colon <+> ppr dc_infos ]
-  needsParens _ = False
 
 type FcCtx = Ctx FcTmVar FcType FcTyVar Kind
 
@@ -80,6 +71,10 @@ notInFcCtxM f x = ask >>= \ctx -> case f ctx x of
 tyVarNotInFcCtxM :: FcTyVar -> FcM ()
 tyVarNotInFcCtxM = notInFcCtxM lookupTyVarCtx
 
+-- | Ensure type variables not already bound
+tyVarsNotInFcCtxM :: [FcTyVar] -> FcM ()
+tyVarsNotInFcCtxM = mapM_ tyVarNotInFcCtxM
+
 -- | Ensure the term variable is not already bound
 tmVarNotInFcCtxM :: FcTmVar -> FcM ()
 tmVarNotInFcCtxM = notInFcCtxM lookupTmVarCtx
@@ -91,88 +86,98 @@ tmVarsNotInFcCtxM = mapM_ tmVarNotInFcCtxM
 -- * Type checking
 -- ----------------------------------------------------------------------------
 
-mkDataConTy :: ([FcTyVar], [FcType], FcTyCon) -> FcType
-mkDataConTy (as, arg_tys, tc) = fcTyAbs as $ fcTyArr arg_tys $ fcTyConApp tc (map FcTyVar as)
+-- -- | Type check a top-level value binding
+-- tcFcValBind :: FcValBind -> FcM FcCtx
+-- tcFcValBind (FcValBind x ty tm) = do
+--   tmVarNotInFcCtxM x  -- GEORGE: Ensure is not already bound
+--   kind <- tcType ty
+--   unless (kind == KStar) $
+--     throwError "tcFcValBind: Kind mismatch (FcValBind)"
+--   ty' <- extendCtxTmM x ty (tcTerm tm)
+--   unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
+--                                 $$ parens (text "given:" <+> ppr ty)
+--                                 $$ parens (text "inferred:" <+> ppr ty'))
+--   extendCtxTmM x ty ask -- GEORGE: Return the extended environment
 
--- | Type check a data declaration
-tcFcDataDecl :: FcDataDecl -> FcM ()
-tcFcDataDecl (FcDataDecl _tc as dcs) = do
-  forM_ as tyVarNotInFcCtxM  -- GEORGE: Ensure is not already bound
-  forM_ dcs $ \(_dc, tys) -> do
-    kinds <- extendCtxTysM as (map kindOf as) (mapM tcType tys)
-    unless (all (==KStar) kinds) $
-      throwError "tcFcDataDecl: Kind mismatch (FcDataDecl)"
+-- -- | Type check a program
+-- tcFcProgram :: FcProgram -> FcM FcType
+-- -- Type check a datatype declaration
+-- tcFcProgram (FcPgmDataDecl datadecl pgm) = do
+--   tcFcDataDecl datadecl
+--   tcFcProgram pgm
+-- -- Type check a top-level value binding
+-- tcFcProgram (FcPgmValDecl valbind pgm) = do
+--   fc_ctx <- tcFcValBind valbind
+--   setCtxM fc_ctx $ tcFcProgram pgm
+-- -- Type check the top-level program expression
+-- tcFcProgram (FcPgmTerm tm) = tcTerm tm
 
--- | Type check a top-level value binding
-tcFcValBind :: FcValBind -> FcM FcCtx
-tcFcValBind (FcValBind x ty tm) = do
-  tmVarNotInFcCtxM x  -- GEORGE: Ensure is not already bound
-  kind <- tcType ty
-  unless (kind == KStar) $
-    throwError "tcFcValBind: Kind mismatch (FcValBind)"
-  ty' <- extendCtxTmM x ty (tcTerm tm)
-  unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
-                                $$ parens (text "given:" <+> ppr ty)
-                                $$ parens (text "inferred:" <+> ppr ty'))
-  extendCtxTmM x ty ask -- GEORGE: Return the extended environment
+-- -- | Type check a System F term
+-- tcTerm :: FcTerm -> FcM FcType
+-- tcTerm (FcTmAbs x ty1 tm) = do
+--   kind <- tcType ty1 -- GEORGE: Should have kind star
+--   unless (kind == KStar) $
+--     throwError "tcTerm: Kind mismatch (FcTmAbs)"
+--   ty2  <- extendCtxTmM x ty1 (tcTerm tm)
+--   return (mkFcArrowTy ty1 ty2)
+-- tcTerm (FcTmVar x) = lookupTmVarM x
+-- tcTerm (FcTmPrim tm) = tcTmPrim tm
+-- tcTerm (FcTmApp tm1 tm2)  = do
+--   ty1 <- tcTerm tm1
+--   ty2 <- tcTerm tm2
+--   case isFcArrowTy ty1 of
+--     Just (ty1a, ty1b) -> alphaEqFcTypes ty1a ty2 >>= \case
+--       True  -> return ty1b
+--       False -> throwErrorM (text "tcTerm" <+> text "FcTmApp" $$ pprPar ty1 $$ pprPar ty2)
+--     Nothing           -> throwErrorM (text "Wrong function FcType application"
+--                                       $$ parens (text "ty1=" <+> ppr ty1)
+--                                       $$ parens (text "ty2=" <+> ppr ty2))
 
--- | Type check a program
-tcFcProgram :: FcProgram -> FcM FcType
--- Type check a datatype declaration
-tcFcProgram (FcPgmDataDecl datadecl pgm) = do
-  tcFcDataDecl datadecl
-  tcFcProgram pgm
--- Type check a top-level value binding
-tcFcProgram (FcPgmValDecl valbind pgm) = do
-  fc_ctx <- tcFcValBind valbind
-  setCtxM fc_ctx $ tcFcProgram pgm
--- Type check the top-level program expression
-tcFcProgram (FcPgmTerm tm) = tcTerm tm
+-- tcTerm (FcTmTyAbs a tm) = do
+--   tyVarNotInFcCtxM a -- GEORGE: Ensure not already bound
+--   ty <- extendCtxTyM a (kindOf a) (tcTerm tm)
+--   return (FcTyAbs a ty)
+-- tcTerm (FcTmTyApp tm ty) = do
+--   kind <- tcType ty
+--   tcTerm tm >>= \case
+--     FcTyAbs a tm_ty
+--       | kindOf a == kind -> return $ substVar a ty tm_ty
+--     _other               -> throwError "Malformed type application"
 
--- | Type check a System F term
-tcTerm :: FcTerm -> FcM FcType
-tcTerm (FcTmAbs x ty1 tm) = do
-  kind <- tcType ty1 -- GEORGE: Should have kind star
-  unless (kind == KStar) $
-    throwError "tcTerm: Kind mismatch (FcTmAbs)"
-  ty2  <- extendCtxTmM x ty1 (tcTerm tm)
-  return (mkFcArrowTy ty1 ty2)
-tcTerm (FcTmVar x) = lookupTmVarM x
-tcTerm (FcTmPrim tm) = tcTmPrim tm
-tcTerm (FcTmApp tm1 tm2)  = do
-  ty1 <- tcTerm tm1
-  ty2 <- tcTerm tm2
-  case isFcArrowTy ty1 of
-    Just (ty1a, ty1b) -> alphaEqFcTypes ty1a ty2 >>= \case
-      True  -> return ty1b
-      False -> throwErrorM (text "tcTerm" <+> text "FcTmApp" $$ pprPar ty1 $$ pprPar ty2)
-    Nothing           -> throwErrorM (text "Wrong function FcType application"
-                                      $$ parens (text "ty1=" <+> ppr ty1)
-                                      $$ parens (text "ty2=" <+> ppr ty2))
+-- tcTerm (FcTmDataCon dc) = mkDataConTy <$> lookupDataConTyM dc
+-- tcTerm (FcTmLet x ty tm1 tm2) = do
+--   tmVarNotInFcCtxM x -- GEORGE: Ensure not already bound
+--   kind <- tcType ty
+--   unless (kind == KStar) $
+--     throwError "tcTerm: Kind mismatch (FcTmLet)"
+--   ty1  <- extendCtxTmM x ty (tcTerm tm1)
+--   unless (ty `eqFcTypes` ty1) $ throwError "Let type doesnt match"
+--   extendCtxTmM x ty (tcTerm tm2)
+-- tcTerm (FcTmCase scr alts) = do
+--   scr_ty <- tcTerm scr
+--   tcAlts scr_ty alts
 
-tcTerm (FcTmTyAbs a tm) = do
-  tyVarNotInFcCtxM a -- GEORGE: Ensure not already bound
-  ty <- extendCtxTyM a (kindOf a) (tcTerm tm)
-  return (FcTyAbs a ty)
-tcTerm (FcTmTyApp tm ty) = do
-  kind <- tcType ty
-  tcTerm tm >>= \case
-    FcTyAbs a tm_ty
-      | kindOf a == kind -> return $ substVar a ty tm_ty
-    _other               -> throwError "Malformed type application"
+-- -- | Type check a list of case alternatives
+-- tcAlts :: FcType -> [FcAlt] -> FcM FcType
+-- tcAlts scr_ty alts
+--   | null alts = throwError "Case alternatives are empty"
+--   | otherwise = do
+--       rhs_tys <- mapM (tcAlt scr_ty) alts
+--       ensureIdenticalTypes rhs_tys
+--       let (ty:_) = rhs_tys
+--       return ty
 
-tcTerm (FcTmDataCon dc) = mkDataConTy <$> lookupDataConTyM dc
-tcTerm (FcTmLet x ty tm1 tm2) = do
-  tmVarNotInFcCtxM x -- GEORGE: Ensure not already bound
-  kind <- tcType ty
-  unless (kind == KStar) $
-    throwError "tcTerm: Kind mismatch (FcTmLet)"
-  ty1  <- extendCtxTmM x ty (tcTerm tm1)
-  unless (ty `eqFcTypes` ty1) $ throwError "Let type doesnt match"
-  extendCtxTmM x ty (tcTerm tm2)
-tcTerm (FcTmCase scr alts) = do
-  scr_ty <- tcTerm scr
-  tcAlts scr_ty alts
+-- tcAlt :: FcType -> FcAlt -> FcM FcType
+-- tcAlt scr_ty (FcAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
+--   Just (tc, tys) -> do
+--     tmVarsNotInFcCtxM xs -- GEORGE: Ensure not bound already
+--     (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+--     unless (dc_tc == tc) $
+--       throwErrorM (text "tcAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
+--     let ty_subst     = mconcat (zipWithExact (|->) as tys)
+--     let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys
+--     extendCtxTmsM xs real_arg_tys (tcTerm rhs)
+--   Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
 
 -- | Kind check a type
 tcType :: FcType -> FcM Kind
@@ -191,27 +196,8 @@ tcType (FcTyApp ty1 ty2) = do
     _otherwise               -> throwError "tcType: Kind mismatch (FcTyApp)"
 tcType (FcTyCon tc) = lookupTyConKindM tc
 
--- | Type check a list of case alternatives
-tcAlts :: FcType -> [FcAlt] -> FcM FcType
-tcAlts scr_ty alts
-  | null alts = throwError "Case alternatives are empty"
-  | otherwise = do
-      rhs_tys <- mapM (tcAlt scr_ty) alts
-      ensureIdenticalTypes rhs_tys
-      let (ty:_) = rhs_tys
-      return ty
-
-tcAlt :: FcType -> FcAlt -> FcM FcType
-tcAlt scr_ty (FcAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
-  Just (tc, tys) -> do
-    tmVarsNotInFcCtxM xs -- GEORGE: Ensure not bound already
-    (as, arg_tys, dc_tc) <- lookupDataConTyM dc
-    unless (dc_tc == tc) $
-      throwErrorM (text "tcAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
-    let ty_subst     = mconcat (zipWithExact (|->) as tys)
-    let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys
-    extendCtxTmsM xs real_arg_tys (tcTerm rhs)
-  Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+mkDataConTy :: ([FcTyVar], [FcType], FcTyCon) -> FcType
+mkDataConTy (as, arg_tys, tc) = fcTyAbs as $ fcTyArr arg_tys $ fcTyConApp tc (map FcTyVar as)
 
 -- | Type check a primitive term
 tcTmPrim :: PrimTm -> FcM FcType
@@ -226,19 +212,257 @@ ensureIdenticalTypes types = unless (go types) $ throwError "Type mismatch in ca
     go []       = True
     go (ty:tys) = all (eqFcTypes ty) tys
 
+tcPrimOp :: PrimOp -> FcM FcType
+tcPrimOp (PrimIntOp op) = return mkIntBinopTy
+
+tcPrimLit :: PrimLit -> FcM FcType
+tcPrimLit (PInt _) = return mkFcIntTy
+
+-- * Phase agnostic type checking functions
+-- ----------------------------------------------------------------------------
+
+-- | Type check a data declaration
+tcFcDataDecl :: FcDataDecl -> FcM ()
+tcFcDataDecl (FcDataDecl _tc as dcs) = do
+  forM_ as tyVarNotInFcCtxM  -- GEORGE: Ensure is not already bound
+  forM_ dcs $ \(_dc, tys) -> do
+    kinds <- extendCtxTysM as (map kindOf as) (mapM tcType tys)
+    unless (all (==KStar) kinds) $
+      throwError "tcFcDataDecl: Kind mismatch (FcDataDecl)"
+
+-- * Optimizer syntax type checking
+-- ----------------------------------------------------------------------------
+
+-- | Typecheck an optimizer program
+tcFcOptProgram :: FcOptProgram -> FcM (FcType, FcResProgram)
+tcFcOptProgram (FcPgmDataDecl decl pgm) = do
+  tcFcDataDecl decl
+  (ty, pgm') <- tcFcOptProgram pgm
+  return (ty, FcPgmDataDecl decl pgm')
+tcFcOptProgram (FcPgmValDecl bind pgm) = do
+  (ctx, bind') <- tcFcOptBind bind
+  (ty, pgm') <- setCtxM ctx $ tcFcOptProgram pgm
+  return (ty, FcPgmValDecl bind' pgm')
+-- ^ type check program term, wrap into FcPgmTerm
+tcFcOptProgram (FcPgmTerm tm) = second FcPgmTerm <$> tcFcOptTerm tm
+
+tcFcOptTerm :: FcOptTerm -> FcM (FcType, FcResTerm)
+-- ^ Type check a type abstraction
+tcFcOptTerm (FcOptTmTyAbs as t) = do
+  tyVarsNotInFcCtxM as
+  (ty, t') <- extendCtxTysM as (map kindOf as) (tcFcOptTerm t)
+  return ((fcTyAbs as ty), t')
+-- ^ Type check a term application
+tcFcOptTerm (FcOptTmApp t ts) = tcFcOptTmApp t ts
+-- ^ Type check a case statement
+tcFcOptTerm (FcOptTmCase tm alts) = do
+  (ty, tm_r) <- tcFcOptTerm tm
+  (tys, alts_r) <- case alts of
+    (FcAAlts alts') -> (second FcAAlts . unzip) <$> mapM (tcFcOptAAlt ty) alts'
+    (FcPAlts alts') -> (second FcPAlts . unzip) <$> mapM (tcFcOptPAlt ty) alts'
+  ensureIdenticalTypes tys
+  return (head tys, FcResTmCase tm_r alts_r)
+-- ^ Type check a local let binding
+tcFcOptTerm (FcOptTmLet bind t) = do
+  (ctx, bind_r) <- tcFcOptBind bind
+  second (FcResTmLet [bind_r]) <$> (setCtxM ctx $ tcFcOptTerm t)
+-- ^ Type check a type application (fallback, TODO)
+tcFcOptTerm (FcOptTmTyApp tm tys) = do
+  bind <- mkFcResBind tm
+  res_ty <- tcFcOptTyApp (fval_bind_ty bind) tys
+  let tyapp_r = FcResTmApp (FcRatorVar (fval_bind_var bind)) (map FcAtType tys)
+  return (res_ty, FcResTmLet [bind] tyapp_r)
+-- ^ Type check an abstraction (fallback)
+tcFcOptTerm (FcOptTmAbs vs tm) = do
+  bind <- mkFcResBind (FcOptTmAbs vs tm)
+  return (fval_bind_ty bind, FcResTmLet [bind] (FcResTmApp (FcRatorVar $ fval_bind_var bind) []))
+tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, (FcResTmApp (FcRatorVar x) []))
+
+-- | Type check an optimizer value binding.
+tcFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
+tcFcOptBind (FcBind x ty tm) = do
+  tmVarNotInFcCtxM x  -- GEORGE: Ensure is not already bound
+  kind <- tcType ty
+  unless (kind == KStar) $
+    throwError "tcFcValBind: Kind mismatch (FcValBind)"
+  (ty', ab) <- case tm of     -- Type check bound term and put it into FcResAbs
+    (FcOptTmAbs vs tm') -> do
+      let (xs, tys) = unzip vs
+      (ty',tm'') <- extendCtxTmsM (x:xs) (ty:tys) (tcFcOptTerm tm')
+      return (ty', (FcResAbs vs tm''))
+    tm'                 -> do
+      (ty', tm'') <- extendCtxTmM x ty (tcFcOptTerm tm')
+      return (ty', (FcResAbs [] tm''))
+  unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
+                                $$ parens (text "given:" <+> ppr ty)
+                                $$ parens (text "inferred:" <+> ppr ty'))
+  ctx_ext <- extendCtxTmM x ty ask -- extend context with bound variable
+  return (ctx_ext, FcBind x ty ab)
+
+-- | Type check applicaton of a list of terms to a term
+tcFcOptTmApp :: FcOptTerm -> [FcOptTerm] -> FcM (FcType, FcResTerm)
+-- ^ application of terms to a variable
+tcFcOptTmApp (FcOptTmVar x) tms = do
+  rator_ty <- lookupTmVarM x
+  (rand_tys, binds, ats) <- tcFcOptTmAppTerms tms
+  app_ty <- getAppResultTy rator_ty rand_tys
+  return (app_ty, mkFcApp binds (FcRatorVar x) ats)
+-- ^ application of terms to a primitive operator (saturated)
+tcFcOptTmApp (FcOptTmPrim (PrimOpTm op)) ts = do
+  rator_ty <- tcPrimOp op
+  (rand_tys, binds, ats) <- tcFcOptTmAppTerms ts
+  app_ty <- getAppResultTy rator_ty rand_tys
+  case isFcPrimLitTy app_ty of -- check if operator application is saturated
+    Just () -> return (app_ty, mkFcApp binds (FcRatorPOp op) ats)
+    Nothing -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "Unsaturated primitive op application")
+-- ^ application of terms to data constructor (saturated)
+tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) k_tys) ts = do
+  (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+  (rand_tys, binds, ats) <- tcFcOptTmAppTerms ts
+  unless (all (uncurry eqFcTypes) (zipExact arg_tys rand_tys)) $ 
+    throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "")
+  rator_ty <- (mkDataConTy <$> lookupDataConTyM dc) 
+  rator_ty' <- tcFcOptTyApp rator_ty k_tys           -- apply types to data constructor type to fully instantiate it
+  getAppResultTy rator_ty' rand_tys >>= \case
+    (FcTyCon t_con) -> -- ensure application yields a fully instantiated datatype
+      return ((FcTyCon t_con), mkFcApp binds (FcRatorCon dc) ((map FcAtType k_tys) ++ ats))
+    other_          -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "Unsaturated datacon application")
+-- ^ application of terms to a term (general case excluding all above)
+tcFcOptTmApp t ts = do
+  rator_bind <- mkFcResBind t
+  (rand_tys, binds, ats) <- tcFcOptTmAppTerms ts
+  app_ty <- getAppResultTy (fval_bind_ty rator_bind) rand_tys
+  return (app_ty, mkFcApp (rator_bind:binds) (FcRatorVar (fval_bind_var rator_bind)) ats)
+
+tcFcOptAAlt :: FcType -> FcOptAAlt -> FcM (FcType, FcResAAlt)
+tcFcOptAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
+  Just (tc, tys) -> do
+    tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
+    (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+    unless (dc_tc == tc) $
+      throwErrorM (text "tcOptAAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
+    let ty_subst = mconcat (zipWithExact (|->) as tys)   -- Create substitution
+    let arg_tys' = map (substFcTyInTy ty_subst) arg_tys  -- and fill in type variables in argument types
+    second (FcAAlt (FcConPat dc xs)) <$> extendCtxTmsM xs arg_tys' (tcFcOptTerm rhs)
+  Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+
+tcFcOptPAlt :: FcType -> FcOptPAlt -> FcM (FcType, FcResPAlt)
+tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
+  lit_ty <- tcPrimLit lit
+  unless (scr_ty `eqFcTypes` lit_ty) $
+    throwErrorM (text "tcOptPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
+  second (FcPAlt lit) <$> tcFcOptTerm rhs
+
+
+-- | Type check application of types to an operator type
+tcFcOptTyApp :: FcType -> [FcType] -> FcM FcType
+tcFcOptTyApp rt_ty []             = return rt_ty
+tcFcOptTyApp rt_ty (rd_ty:rd_tys) = do
+  kind <- tcType rd_ty
+  case rt_ty of 
+    FcTyAbs a rt_ty'
+      | kindOf a == kind -> tcFcOptTyApp (substVar a rd_ty rt_ty') rd_tys
+    _other               -> throwErrorM (text "tcFcOptTyApp" <+> colon <+> text "malformed type application")
+
+-- -- | Determine the resulting type from the application
+getAppResultTy :: FcType -> [FcType] -> FcM FcType
+getAppResultTy rator_ty []                 = return rator_ty
+getAppResultTy rator_ty (rand_ty:rand_tys) = case isFcArrowTy rator_ty of
+  Just (arg_ty, rator_ty') | arg_ty `eqFcTypes` rator_ty -> getAppResultTy rator_ty' rand_tys
+  _other -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "application types don't match")
+
+
+-- | Implementation of the |-app relation
+tcFcOptTmAppTerms :: [FcOptTerm] -> FcM ([FcType], [FcResBind], [FcAtom])
+tcFcOptTmAppTerms [] = return ([],[],[])
+tcFcOptTmAppTerms (t:ts) = do
+  (tys, binds, ats) <- tcFcOptTmAppTerms ts
+  case t of
+    -- variables and literals can directly be added to the atoms list
+    (FcOptTmVar x) -> lookupTmVarM x >>= 
+      \ty -> return ((ty:tys), binds, ((FcAtVar x  ):ats))
+    (FcOptTmPrim (PrimLitTm lit)) -> tcPrimLit lit >>= 
+      \ty -> return ((ty:tys), binds, ((FcAtLit lit):ats))
+    -- general terms get bound to a variable in the binds list
+    _ -> do
+      bind <- mkFcResBind t
+      return (((fval_bind_ty bind):tys), (bind:binds), ((FcAtVar $ fval_bind_var bind):ats))
+ 
+-- convertFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
+-- convertFcOptBind (FcBind x ty t) = do
+--   tmVarNotInFcCtxM x
+--   kind <- tcType ty
+--   unless (kind == KStar) $
+--     throwErrorM (text "tcFcOptBind: Kind mismatch")
+--   (ty', ab) <- case t of 
+--     (FcOptTmAbs vs t') -> 
+--     t'                 -> 
+--   unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
+--                                 $$ parens (text "given:" <+> ppr ty)
+--                                 $$ parens (text "inferred:" <+> ppr ty'))
+
+mkFcApp :: [FcResBind] -> FcRator -> [FcAtom] -> FcResTerm
+mkFcApp []    r ats = FcResTmApp r ats
+mkFcApp binds r ats = FcResTmLet binds (FcResTmApp r ats)
+
+-- | Type check a term and produce a binding to a fresh variable
+mkFcResBind :: FcOptTerm -> FcM FcResBind
+-- ^ Absorb bindings into let if there are any
+mkFcResBind (FcOptTmAbs vs tm) = do
+  let (xs,tys) = unzip vs
+  (ty, tm_r) <- extendCtxTmsM xs tys (tcFcOptTerm tm)
+  x <- freshFcTmVar
+  return $ FcBind x ty (FcResAbs vs tm_r)
+-- ^ In the other case instantiate empty abstraction
+mkFcResBind t = do
+  (ty, tm_r) <- tcFcOptTerm t
+  x <- freshFcTmVar
+  return $ FcBind x ty (FcResAbs [] tm_r)
+
+-- * Restricted syntax type checking
+-- ----------------------------------------------------------------------------
+
+-- tcFcResProgram :: FcResProgram -> FcM (FcType, SProg)
+
+
+
 -- * Invoke the complete System F type checker
 -- ----------------------------------------------------------------------------
 
 -- GEORGE: Refine the type and also print more stuff out
 
-fcTypeCheck :: (AssocList FcTyCon FcTyConInfo, AssocList FcDataCon FcDataConInfo) -> UniqueSupply -> FcProgram
-            -> (Either String ((FcType, UniqueSupply), FcGblEnv), Trace)
-fcTypeCheck (tc_env, dc_env) us pgm = runWriter
-                                    $ runExceptT
-                                    $ flip runStateT  fc_init_gbl_env
-                                    $ flip runReaderT fc_init_ctx
-                                    $ flip runUniqueSupplyT us
-                                    $ tcFcProgram pgm
+-- fcTypeCheck :: (AssocList FcTyCon FcTyConInfo, AssocList FcDataCon FcDataConInfo) -> UniqueSupply -> FcProgram
+--             -> (Either String ((FcType, UniqueSupply), FcGblEnv), Trace)
+-- fcTypeCheck (tc_env, dc_env) us pgm = runWriter
+--                                     $ runExceptT
+--                                     $ flip runStateT  fc_init_gbl_env
+--                                     $ flip runReaderT fc_init_ctx
+--                                     $ flip runUniqueSupplyT us
+--                                     $ tcFcProgram pgm
+--   where
+--     fc_init_ctx     = mempty
+--     fc_init_gbl_env = FcGblEnv tc_env dc_env
+
+
+fcOptElaborate :: FcGblEnv -> UniqueSupply -> FcOptProgram
+         -> (Either String (((FcType, FcResProgram), UniqueSupply), FcGblEnv), Trace)
+fcOptElaborate fc_init_gbl_env us pgm = runWriter
+                                 $ runExceptT
+                                 $ flip runStateT  fc_init_gbl_env
+                                 $ flip runReaderT fc_init_ctx
+                                 $ flip runUniqueSupplyT us
+                                 $ tcFcOptProgram pgm
   where
-    fc_init_ctx     = mempty
-    fc_init_gbl_env = FcGblEnv tc_env dc_env
+    fc_init_ctx = mempty
+
+
+-- fcResElab :: FcGblEnv -> UniqueSupply -> FcResProgram
+--          -> (Either String ((FcType, SProg, UniqueSupply), FcGblEnv), Trace)
+-- fcResElab fc_init_gbl_env us pgm = runWriter
+--                                  $ runExceptT
+--                                  $ flip runStateT  fc_init_gbl_env
+--                                  $ flip runReaderT fc_init_ctx
+--                                  $ flip runUniqueSupplyT us
+--                                  $ tcFcResProgram pgm
+--   where
+--     fc_init_ctx = mempty
