@@ -251,7 +251,13 @@ tcFcOptTerm :: FcOptTerm -> FcM (FcType, FcResTerm)
 tcFcOptTerm (FcOptTmTyAbs as t) = do
   tyVarsNotInFcCtxM as
   (ty, t') <- extendCtxTysM as (map kindOf as) (tcFcOptTerm t)
-  return ((fcTyAbs as ty), t')
+  return (fcTyAbs as ty, t')
+-- ^ Type check a type application (fallback, TODO)
+tcFcOptTerm (FcOptTmTyApp tm tys) = do
+  bind <- mkFcResBind tm
+  res_ty <- tcFcOptTyApp (fval_bind_ty bind) tys
+  let tyapp_r = FcResTmApp (FcRatorVar (fval_bind_var bind)) (map FcAtType tys)
+  return (res_ty, FcResTmLet [bind] tyapp_r)
 -- ^ Type check a term application
 tcFcOptTerm (FcOptTmApp t ts) = tcFcOptTmApp t ts
 -- ^ Type check a case statement
@@ -266,17 +272,18 @@ tcFcOptTerm (FcOptTmCase tm alts) = do
 tcFcOptTerm (FcOptTmLet bind t) = do
   (ctx, bind_r) <- tcFcOptBind bind
   second (FcResTmLet [bind_r]) <$> (setCtxM ctx $ tcFcOptTerm t)
--- ^ Type check a type application (fallback, TODO)
-tcFcOptTerm (FcOptTmTyApp tm tys) = do
-  bind <- mkFcResBind tm
-  res_ty <- tcFcOptTyApp (fval_bind_ty bind) tys
-  let tyapp_r = FcResTmApp (FcRatorVar (fval_bind_var bind)) (map FcAtType tys)
-  return (res_ty, FcResTmLet [bind] tyapp_r)
 -- ^ Type check an abstraction (fallback)
 tcFcOptTerm (FcOptTmAbs vs tm) = do
   bind <- mkFcResBind (FcOptTmAbs vs tm)
   return (fval_bind_ty bind, FcResTmLet [bind] (FcResTmApp (FcRatorVar $ fval_bind_var bind) []))
 tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, (FcResTmApp (FcRatorVar x) []))
+-- ^ Type check a datacon (fallback for dc arity 0)
+tcFcOptTerm (FcOptTmDataCon dc) = do
+  (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+  unless (length arg_tys == 0) $
+    throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "Unsaturated datacon application")
+  return (mkDataConTy (as, arg_tys, dc_tc), FcResTmApp (FcRatorCon dc) [])
+
 
 -- | Type check an optimizer value binding.
 tcFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
@@ -288,11 +295,12 @@ tcFcOptBind (FcBind x ty tm) = do
   (ty', ab) <- case tm of     -- Type check bound term and put it into FcResAbs
     (FcOptTmAbs vs tm') -> do
       let (xs, tys) = unzip vs
-      (ty',tm'') <- extendCtxTmsM (x:xs) (ty:tys) (tcFcOptTerm tm')
-      return (ty', (FcResAbs vs tm''))
+      (ty_tm, tm_r) <- extendCtxTmsM (x:xs) (ty:tys) (tcFcOptTerm tm')
+      let ty_ab = foldr mkFcArrowTy ty_tm tys
+      return (ty_ab, (FcResAbs vs tm_r))
     tm'                 -> do
-      (ty', tm'') <- extendCtxTmM x ty (tcFcOptTerm tm')
-      return (ty', (FcResAbs [] tm''))
+      (ty_tm, tm_r) <- extendCtxTmM x ty (tcFcOptTerm tm')
+      return (ty_tm, (FcResAbs [] tm_r))
   unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
                                 $$ parens (text "given:" <+> ppr ty)
                                 $$ parens (text "inferred:" <+> ppr ty'))
@@ -412,10 +420,10 @@ mkFcResBind (FcOptTmAbs vs tm) = do
   let (xs,tys) = unzip vs
   (ty, tm_r) <- extendCtxTmsM xs tys (tcFcOptTerm tm)
   x <- freshFcTmVar
-  return $ FcBind x ty (FcResAbs vs tm_r)
+  return $ FcBind x (foldr mkFcArrowTy ty tys) (FcResAbs vs tm_r)
 -- ^ In the other case instantiate empty abstraction
-mkFcResBind t = do
-  (ty, tm_r) <- tcFcOptTerm t
+mkFcResBind tm = do
+  (ty, tm_r) <- tcFcOptTerm tm
   x <- freshFcTmVar
   return $ FcBind x ty (FcResAbs [] tm_r)
 
