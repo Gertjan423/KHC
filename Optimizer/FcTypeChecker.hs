@@ -432,8 +432,12 @@ tcFcOptTyApp rt_ty (rd_ty:rd_tys) = do
 getAppResultTy :: FcType -> [FcType] -> FcM FcType
 getAppResultTy rator_ty []                 = return rator_ty
 getAppResultTy rator_ty (rand_ty:rand_tys) = case isFcArrowTy rator_ty of
-  Just (arg_ty, rator_ty') | arg_ty `eqFcTypes` rand_ty -> getAppResultTy rator_ty' rand_tys
-  _other -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "application types don't match")
+  Just (arg_ty, rator_ty') 
+    | arg_ty `eqFcTypes` rand_ty -> getAppResultTy rator_ty' rand_tys
+    | otherwise                  -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "application types don't match"
+    $$ text "given: " <+> ppr rand_ty
+    $$ text "inferred: " <+> ppr arg_ty)
+  _other -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "oversaturated application")
 
 
 -- | Implementation of the |-app relation
