@@ -229,8 +229,25 @@ ensureMatchingArgTypes rand_tys arg_tys
         $$ (text "given: " <+> ppr rand_tys)
         $$ (text "expected: " <+> ppr arg_tys))
 
-tcPrimOp :: PrimOp -> FcM FcType
-tcPrimOp (PrimIntOp op) = return mkIntBinopTy
+-- | Checks if argument types match, returns 
+matchArgumentTypes :: [FcType] -> [FcType] -> FcM [FcType]
+matchArgumentTypes rand_tys arg_tys = case go rand_tys arg_tys of
+  Just rest_tys -> return rest_tys
+  Nothing       -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "data constructor argument type mismatch"
+        $$ (text "given: " <+> ppr rand_tys)
+        $$ (text "expected: " <+> ppr arg_tys))
+  where 
+    go :: [FcType] -> [FcType] -> Maybe [FcType]
+    go []           []           = Just []
+    go []           a_tys        = Just a_tys
+    go r_tys        []           = Nothing
+    go (r_ty:r_tys) (a_ty:a_tys)
+      | r_ty `eqFcTypes` a_ty = go r_tys a_tys
+      | otherwise             = Nothing
+
+-- | Returns argument types and result type of a primitive operation
+lookupPrimOp :: PrimOp -> FcM ([FcType],FcType)
+lookupPrimOp (PrimIntOp op) = return ([mkFcIntTy, mkFcIntTy], mkFcIntTy)
 
 tcPrimLit :: PrimLit -> FcM FcType
 tcPrimLit (PInt _) = return mkFcIntTy
@@ -294,6 +311,8 @@ tcFcOptTerm (FcOptTmAbs vs tm) = do
   bind <- mkFcResBind (FcOptTmAbs vs tm)
   return (fval_bind_ty bind, FcResTmLet [bind] (FcResTmApp (FcRatorVar $ fval_bind_var bind) []))
 tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, FcResTmApp (FcRatorVar x) [])
+-- ^ Type check a primitive literal
+tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = tcPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
 -- ^ Type check a datacon (fallback for dc arity 0)
 tcFcOptTerm (FcOptTmDataCon dc) = do
   (as, arg_tys, dc_tc) <- lookupDataConTyM dc
@@ -334,23 +353,44 @@ tcFcOptTmApp (FcOptTmVar x) tms = do
   return (app_ty, mkFcApp binds (FcRatorVar x) ats)
 -- ^ application of terms to a primitive operator (saturated)
 tcFcOptTmApp (FcOptTmPrim (PrimOpTm op)) ts = do
-  rator_ty <- tcPrimOp op
+  (arg_tys, res_ty) <- lookupPrimOp op
   (rand_tys, binds, ats) <- tcFcOptTmAppTerms ts
-  app_ty <- getAppResultTy rator_ty rand_tys
-  case isFcPrimLitTy app_ty of -- check if operator application is saturated
-    Just () -> return (app_ty, mkFcApp binds (FcRatorPOp op) ats)
-    Nothing -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "Unsaturated primitive op application")
+  (eta_res_ty, eta_binds, res_tm) <- matchArgumentTypes rand_tys arg_tys >>= \case
+    -- application is saturated: nothing to do
+    [] -> return (res_ty, binds, FcResTmApp (FcRatorPOp op) ats)
+    -- unsaturated: eta expand
+    eta_tys -> do
+      eta_vars <- mapM (const freshFcTmVar) eta_tys
+      -- build eta expanded application, bind to new variable and return
+      rator_var <- freshFcTmVar
+      let rator_ty = foldr mkFcArrowTy res_ty eta_tys
+      let rator_ab = FcResAbs (zipExact eta_vars eta_tys) 
+                       (FcResTmApp (FcRatorPOp op) (ats ++ map FcAtVar eta_vars))
+      -- add binding, replace application by empty application to variable
+      return (rator_ty, FcBind rator_var rator_ty rator_ab:binds, FcResTmApp (FcRatorVar rator_var) [])
+  return (eta_res_ty, FcResTmLet eta_binds res_tm)
 -- ^ application of terms to data constructor (saturated)
 tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) k_tys) tms = do
   (as, arg_tys, dc_tc) <- lookupDataConTyM dc              -- Get type of datacon
   let ty_subst = mconcat (zipWithExact (|->) as k_tys)     
   let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys  -- Fully instantiate argument types
   (rand_tys, binds, ats) <- tcFcOptTmAppTerms tms          -- Get type of arguments
-  ensureMatchingArgTypes rand_tys real_arg_tys
-  let res_ty = fcTyConApp dc_tc k_tys                      -- Get result type
-  let tm_r = FcResTmLet binds                              -- Build translated term
-                (FcResTmApp (FcRatorCon dc) (map FcAtType k_tys ++ ats))
-  return (res_ty, tm_r)
+  (eta_res_ty, eta_binds, res_tm) <- matchArgumentTypes rand_tys real_arg_tys >>= \case
+    -- application is saturated: nothing to do
+    [] -> return (fcTyConApp dc_tc k_tys, 
+            binds, 
+            FcResTmApp (FcRatorCon dc) (map FcAtType k_tys ++ ats))
+    -- unsaturated application: eta expand
+    eta_tys -> do
+      eta_vars <- mapM (const freshFcTmVar) eta_tys
+      -- build eta expanded application, bind to new variable and return
+      rator_var <- freshFcTmVar
+      let rator_ty = foldr mkFcArrowTy (fcTyConApp dc_tc k_tys) eta_tys
+      let rator_ab = FcResAbs (zipExact eta_vars eta_tys) 
+                       (FcResTmApp (FcRatorCon dc) (map FcAtType k_tys ++ ats ++ map FcAtVar eta_vars))
+      -- add binding, replace application by empty application to variable
+      return (rator_ty, FcBind rator_var rator_ty rator_ab:binds, FcResTmApp (FcRatorVar rator_var) [])
+  return (eta_res_ty, FcResTmLet eta_binds res_tm)
 -- ^ application of terms to a term (general case excluding all above)
 tcFcOptTmApp t ts = do
   rator_bind <- mkFcResBind t

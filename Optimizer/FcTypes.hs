@@ -235,6 +235,7 @@ data FcResTerm
   | FcResTmTyAbs [FcTyVar] FcResTerm         -- ^ (Multiple) type abstraction
   | FcResTmLet [FcResBind] FcResTerm         -- ^ let bind in term
   | FcResTmCase FcResTerm (FcAlts FcResTerm) -- ^ case term of alts
+  | FcResTmLit PrimLit                       -- ^ Primitive literal
 
 -- | Value binding
 data FcBind a where
@@ -329,10 +330,11 @@ instance ContainsFreeTyVars FcOptTerm FcTyVar where
   ftyvsOf (FcOptTmCase tm alts)  = ftyvsOf tm ++ ftyvsOf alts
 
 instance ContainsFreeTyVars FcResTerm FcTyVar where
-  ftyvsOf (FcResTmApp _ ats) = ftyvsOf ats
+  ftyvsOf (FcResTmApp _ ats)    = ftyvsOf ats
   ftyvsOf (FcResTmTyAbs as tm)  = ftyvsOf tm \\ as
   ftyvsOf (FcResTmLet bd tm)    = ftyvsOf bd ++ ftyvsOf tm
   ftyvsOf (FcResTmCase tm alts) = ftyvsOf tm ++ ftyvsOf alts
+  ftyvsOf (FcResTmLit _)        = []
 
 instance ContainsFreeTyVars FcOptBind FcTyVar where
   ftyvsOf (FcBind _ a tm) = ftyvsOf a ++ ftyvsOf tm
@@ -451,21 +453,21 @@ instance PrettyPrint FcOptTerm where
 
 instance PrettyPrint FcResTerm where
   ppr (FcResTmApp rand ats)   = foldl (<+>) (ppr rand) (map pprPar ats)
-  ppr (FcResTmTyAbs tvs tm)     = foldr ((<+>) . pprLbd) (ppr tm) tvs
+  ppr (FcResTmTyAbs tvs tm)   = foldr ((<+>) . pprLbd) (ppr tm) tvs
     where pprLbd a = hang (colorDoc yellow (text "/\\") <> ppr a <> dot) 2 (ppr tm)
 
   ppr (FcResTmLet bind tm)
     =  (colorDoc yellow (text "let") <+> ppr bind)
     $$ (colorDoc yellow (text "in" ) <+> ppr tm  )
-  ppr (FcResTmCase tm alts)        = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
-                                       2 (ppr alts)
+  ppr (FcResTmCase tm alts)   = hang (colorDoc yellow (text "case") <+> ppr tm <+> colorDoc yellow (text "of"))
+                                  2 (ppr alts)
+  ppr (FcResTmLit lit)        = ppr lit 
 
-
-  
   needsParens FcResTmApp   {} = True
-  needsParens FcResTmTyAbs    {} = True
-  needsParens FcResTmLet      {} = True
-  needsParens FcResTmCase     {} = True
+  needsParens FcResTmTyAbs {} = True
+  needsParens FcResTmLet   {} = True
+  needsParens FcResTmCase  {} = True
+  needsParens FcResTmLit   {} = False
 
 -- | Pretty print variable bindings
 instance PrettyPrint FcOptBind where
