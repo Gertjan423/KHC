@@ -1,30 +1,36 @@
-module Optimizer.FcPreprocessor where
+module Optimizer.FcPreprocessor (mergeAppAbsOptProg) where
 
 import Optimizer.FcTypes
-import 
 
-FcPreM = UniqueSupplyT (ExceptT String (Writer Trace))
+mergeAppAbsOptProg :: FcOptProgram -> FcOptProgram
+mergeAppAbsOptProg (FcPgmDataDecl decl pgm) = FcPgmDataDecl decl (mergeAppAbsOptProg pgm)
+mergeAppAbsOptProg (FcPgmValDecl  bind pgm) = FcPgmValDecl (mergeAppAbsOptBind bind) (mergeAppAbsOptProg pgm)
+mergeAppAbsOptProg (FcPgmTerm tm) = FcPgmTerm (mergeAppAbsOptTm tm)
 
-procProgram :: FcOptProgram -> FcPreM FcPreProgram
-procProgram (FcPgmDataDecl decl pgm) = FcPgmDataDecl decl <$> (procProgram pgm)
-procProgram (FcPgmValDecl  bind pgm) = FcPgmValDecl <$> (procBind bind) <*> (procProgram pgm)
-procProgram (FcPgmTerm     tm      ) = FcPgmTerm <$> (procTm tm)
+-- | Merge applications and abstractions
+mergeAppAbsOptTm :: FcOptTerm -> FcOptTerm
+mergeAppAbsOptTm (FcOptTmAbs vs tm) = case mergeAppAbsOptTm tm of
+  (FcOptTmAbs vs' tm') -> FcOptTmAbs (vs++vs') tm'
+  tm'                  -> FcOptTmAbs vs tm'
+mergeAppAbsOptTm (FcOptTmApp tm tms) = case mergeAppAbsOptTm tm of
+  (FcOptTmApp tm' tms') -> FcOptTmApp tm' (tms' ++ map mergeAppAbsOptTm tms)
+  tm'                   -> FcOptTmApp tm' (map mergeAppAbsOptTm tms)
+mergeAppAbsOptTm (FcOptTmTyAbs as tm) = case mergeAppAbsOptTm tm of
+  (FcOptTmTyAbs as' tm') -> FcOptTmTyAbs (as++as') tm'
+  tm'                    -> FcOptTmTyAbs as tm'
+mergeAppAbsOptTm (FcOptTmTyApp tm tys) = case mergeAppAbsOptTm tm of
+  (FcOptTmTyApp tm' tys') -> FcOptTmTyApp tm' (tys'++tys)
+  tm'                     -> FcOptTmTyApp tm' tys
+mergeAppAbsOptTm (FcOptTmLet bind tm)  = FcOptTmLet (mergeAppAbsOptBind bind) (mergeAppAbsOptTm tm)
+mergeAppAbsOptTm (FcOptTmCase tm alts) = FcOptTmCase (mergeAppAbsOptTm tm) (mergeAppAbsOptAlts alts)
+-- ^ all other terms do not need to recurse
+mergeAppAbsOptTm tm = tm
 
-procTm :: FcOptTerm -> FcPreM FcOptTerm
-procTm (FcOptTmApp tm1 tms) = procTm tm1 >>= \case
-  (FcOptTmApp tm2 tms') -> FcOptTmApp tm2 <*> (mapM procTm (tms' ++ tms))
-  tm2                   -> FcOptTmApp tm2 <*> (mapM procTm tms)
-procTm (FcOptTmTyApp tm tys1) = procTm tm >>= \case
-  (FcOptTmTyApp tm' tys2) -> return FcOptTmTyApp tm' (tys2 ++ tys1)
-  tm'                     -> return FcOptTmTyApp tm' tys1
-procTm (FcOptTmAbs xs tys1 tm) = procTm tm >>= \case
-  (FcOptTmAbs ys tys2 tm') -> FcOptTmAbs (ys ++ xs) (tys2 ++ tys1)
-procTm tm = return tm
+mergeAppAbsOptBind :: FcOptBind -> FcOptBind
+mergeAppAbsOptBind (FcBind x ty tm) = FcBind x ty (mergeAppAbsOptTm tm)
 
-
-fcPreProcess :: UniqueSupply -> FcOptProgram -> (Either String (FcPreProgram, UniqueSupply))
-fcPreProcess us pgm = runWriter
-                    $ runExceptT
-                    $ flip runUniqueSupplyT us
-                    $ procProgram pgm
-
+mergeAppAbsOptAlts :: FcOptAlts -> FcOptAlts
+mergeAppAbsOptAlts (FcAAlts alts) = FcAAlts $ map mergeAppAbsOptAAlt alts
+  where mergeAppAbsOptAAlt (FcAAlt pat tm) = FcAAlt pat (mergeAppAbsOptTm tm)
+mergeAppAbsOptAlts (FcPAlts alts) = FcPAlts $ map mergeAppAbsOptPAlt alts
+  where mergeAppAbsOptPAlt (FcPAlt lit tm) = FcPAlt lit (mergeAppAbsOptTm tm)
