@@ -231,19 +231,19 @@ ensureMatchingArgTypes rand_tys arg_tys
 
 -- | Checks if argument types match, returns 
 matchArgumentTypes :: [FcType] -> [FcType] -> FcM [FcType]
-matchArgumentTypes rand_tys arg_tys = case go rand_tys arg_tys of
+matchArgumentTypes rand_tys arg_tys = go rand_tys arg_tys >>= \case
   Just rest_tys -> return rest_tys
   Nothing       -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "data constructor argument type mismatch"
         $$ (text "given: " <+> ppr rand_tys)
         $$ (text "expected: " <+> ppr arg_tys))
   where 
-    go :: [FcType] -> [FcType] -> Maybe [FcType]
-    go []           []           = Just []
-    go []           a_tys        = Just a_tys
-    go r_tys        []           = Nothing
-    go (r_ty:r_tys) (a_ty:a_tys)
-      | r_ty `eqFcTypes` a_ty = go r_tys a_tys
-      | otherwise             = Nothing
+    go :: [FcType] -> [FcType] -> FcM (Maybe [FcType])
+    go []           []           = return $ Just []
+    go []           a_tys        = return $ Just a_tys
+    go _            []           = return Nothing
+    go (r_ty:r_tys) (a_ty:a_tys) = r_ty `alphaEqFcTypes` a_ty >>= \case
+      True  -> go r_tys a_tys
+      False -> return Nothing
 
 -- | Returns argument types and result type of a primitive operation
 lookupPrimOp :: PrimOp -> FcM ([FcType],FcType)
@@ -314,11 +314,16 @@ tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, FcResTmApp (F
 -- ^ Type check a primitive literal
 tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = tcPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
 -- ^ Type check a datacon (fallback for dc arity 0)
-tcFcOptTerm (FcOptTmDataCon dc) = do
-  (as, arg_tys, dc_tc) <- lookupDataConTyM dc
-  unless (null arg_tys) $
-    throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "Unsaturated datacon application")
-  return (mkDataConTy (as, arg_tys, dc_tc), FcResTmApp (FcRatorCon dc) [])
+tcFcOptTerm (FcOptTmDataCon dc) = tcFcOptTmApp (FcOptTmDataCon dc) []
+-- ^ Type check a primitive operator (fallback for primop without application around it)
+tcFcOptTerm (FcOptTmPrim (PrimOpTm op)) = do
+  (arg_tys, res_ty) <- lookupPrimOp op
+  arg_vars <- mapM (const freshFcTmVar) arg_tys
+  rator_var <- freshFcTmVar
+  let rator_ty = foldr mkFcArrowTy res_ty arg_tys
+  let rator_ab = FcResAbs (zipExact arg_vars arg_tys) 
+                   (FcResTmApp (FcRatorPOp op) (map FcAtVar arg_vars))
+  return (rator_ty, FcResTmLet [FcBind rator_var rator_ty rator_ab] (FcResTmApp (FcRatorVar rator_var) []))
 
 
 -- | Type check an optimizer value binding.
@@ -369,6 +374,8 @@ tcFcOptTmApp (FcOptTmPrim (PrimOpTm op)) ts = do
       -- add binding, replace application by empty application to variable
       return (rator_ty, FcBind rator_var rator_ty rator_ab:binds, FcResTmApp (FcRatorVar rator_var) [])
   return (eta_res_ty, FcResTmLet eta_binds res_tm)
+-- ^ application of terms to data constructor (without type application)
+tcFcOptTmApp (FcOptTmDataCon dc) tms = tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) []) tms
 -- ^ application of terms to data constructor (saturated)
 tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) k_tys) tms = do
   (as, arg_tys, dc_tc) <- lookupDataConTyM dc              -- Get type of datacon
@@ -426,7 +433,8 @@ tcFcOptTyApp rt_ty (rd_ty:rd_tys) = do
   case rt_ty of 
     FcTyAbs a rt_ty'
       | kindOf a == kind -> tcFcOptTyApp (substVar a rd_ty rt_ty') rd_tys
-    _other               -> throwErrorM (text "tcFcOptTyApp" <+> colon <+> text "malformed type application")
+    _other               -> throwErrorM (text "tcFcOptTyApp" <+> colon <+> text "malformed type application"
+      $$ text "type given: " <+> ppr rt_ty <+> text "does not have kind star")
 
 -- -- | Determine the resulting type from the application
 getAppResultTy :: FcType -> [FcType] -> FcM FcType
