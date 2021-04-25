@@ -56,7 +56,7 @@ module Utils.Unique
 
   -- * Built in uniques
 , arrowTyConUnique, arrowTyVar1Unique, arrowTyVar2Unique
-, intTyConUnique
+, intTyConUnique, stgMainBindUnique
 ) where
 
 import Utils.PrettyPrint
@@ -90,6 +90,13 @@ arrowTyVar2Unique = MkU 'b' 2
 
 intTyConUnique :: Unique
 intTyConUnique = MkU 'p' 0
+
+-- ----------------------------------------------------------------------------
+--                               STG Uniques
+-- ---------------------------------------------------------------------------- 
+
+stgMainBindUnique :: Unique
+stgMainBindUnique = MkU 's' 0
 
 -- ----------------------------------------------------------------------------
 --                                 Unique

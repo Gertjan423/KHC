@@ -11,6 +11,7 @@ module Backend.STGTypes where
 
 import Utils.Var
 import Utils.PrettyPrint
+import Utils.Prim
 
 -- * Type Declarations
 -- ** Programs
@@ -18,20 +19,18 @@ import Utils.PrettyPrint
 
 -- | A program in the STG language.
 -- A program is simply a collection of variable bindings. Its result is obtained by evaluating the global variable `main`.
-newtype SProg = SProg SBinds
+newtype SProg = SProg [SBind]
 
 -- ** Variables and bindings
 -- ----------------------------------------------------------------------------
 
--- | Variable
-newtype SVar = SVar {svar_name :: Name}
 -- | Constructor
-newtype SCon = SCon {scon_clos :: SVar}
+newtype SCon = SCon {scon_name :: Name}
 
 -- | Variable binding list
 -- A list of bindings containing at least one element.
-data SBinds = SBinds SBind (Maybe SBinds)
--- | Single variable binding
+-- data SBinds = SBinds SBind (Maybe SBinds)
+-- | Variable binding
 data SBind  = SBind  SVar SLForm
 
 -- ** Expressions and atoms
@@ -39,29 +38,29 @@ data SBind  = SBind  SVar SLForm
 
 -- | Expression
 data SExpr 
-  = SLet  SBinds   SExpr  -- ^ Let expression
-  | SLetR SBinds   SExpr  -- ^ Letrec expression
+  = SLet  [SBind]  SExpr  -- ^ Let expression
+  | SLetR [SBind]  SExpr  -- ^ Letrec expression
   | SCase SExpr    SAlts  -- ^ Case expression
-  | SApp  SVar    [SAtom] -- ^ Application expression
+  | SApp  SVar    [SAtom] -- ^ Application to variable
   | SCApp SCon    [SAtom] -- ^ Fully saturated constructor application
-  | SPApp SPrimOp [SAtom] -- ^ Fully saturated primitive operation application
-  | SELit SLit            -- ^ Literal expression
+  | SPApp PrimOp  [SAtom] -- ^ Fully saturated primitive operation application
+  | SELit PrimLit         -- ^ Literal expression
 
 -- | Atom
-data SAtom = SVAt SVar | SLAt SLit
+data SAtom = SAtVar SVar | SAtLit PrimLit
 
 -- ** Case expression
 -- ----------------------------------------------------------------------------
 
 -- | Case alternatives
 data SAlts
-  = MkAAlts [SAAlt] SDefAlt -- ^ ADT alternatives 
-  | MkPAlts [SPAlt] SDefAlt -- ^ Primitive alternatives
+  = SAAlts [SAAlt] --SDefAlt -- ^ ADT alternatives 
+  | SPAlts [SPAlt] --SDefAlt -- ^ Primitive alternatives
 
 -- Algebraic alternative (over ADT)
 data SAAlt   = SAAlt SCon [SVar] SExpr
 -- Primitive alternative (over primitive literals)
-data SPAlt   = SPAlt SLit SExpr
+data SPAlt   = SPAlt PrimLit SExpr
 -- Default alternative
 data SDefAlt = SDefAlt [SVar] SExpr
 
@@ -80,25 +79,12 @@ data SUFlag
   = Uble  -- ^ Updatable
   | NUble -- ^ Not Updatable
 
--- ** Primitive ops and literals
--- ----------------------------------------------------------------------------
-
--- | Primitive operations
-data SPrimOp 
-  = SAdd -- ^ Addition
-  | SSub -- ^ Subtraction
-  | SMul -- ^ Multiplication
-  | SDiv -- ^ Division
-
--- | Wrapped literals
-newtype SLit 
-  = SLit Int -- ^ Wrapped integer
-
--- instance Symable SVar where
---   symOf = symOf . svar_name
-
 -- Pretty printing
 -- ----------------------------------------------------------------------------
+
+instance PrettyPrint SProg where
+  ppr (SProg binds) = ppr binds
+  needsParens _     = False
 
 instance PrettyPrint SExpr where
   ppr (SLet  bs  e  ) = hang (colorDoc yellow (text "let"))
@@ -134,17 +120,13 @@ instance PrettyPrint SUFlag where
   ppr NUble = text "\\n"
   needsParens = const False
 
-instance PrettyPrint SBinds where
-  ppr (SBinds vb bs) = ppr vb $$ ppr bs
-  needsParens = const False
-
 instance PrettyPrint SBind where
   ppr (SBind v lf) = ppr v <+> text "=" <+> ppr lf
   needsParens = const False 
 
 instance PrettyPrint SAlts where
-  ppr (MkAAlts as d) = vcat $ map ppr as ++ [ppr d]
-  ppr (MkPAlts as d) = vcat $ map ppr as ++ [ppr d]
+  ppr (SAAlts as) = vcat $ map ppr as -- ++ [ppr d]
+  ppr (SPAlts as) = vcat $ map ppr as -- ++ [ppr d]
   needsParens = const False
 
 instance PrettyPrint SAAlt where
@@ -164,25 +146,10 @@ instance PrettyPrint SDefAlt where
   needsParens = const False
 
 instance PrettyPrint SAtom where
-  ppr (SVAt v) = ppr v
-  ppr (SLAt l) = ppr l
-  needsParens = const False
-
-instance PrettyPrint SVar where
-  ppr           = ppr . svar_name
+  ppr (SAtVar v) = ppr v
+  ppr (SAtLit l) = ppr l
   needsParens = const False
 
 instance PrettyPrint SCon where
-  ppr           = ppr . scon_clos
+  ppr           = ppr . scon_name
   needsParens = const False 
-
-instance PrettyPrint SLit where
-  ppr (SLit i)  = int i <> text "#"
-  needsParens = const False
-
-instance PrettyPrint SPrimOp where
-  ppr SAdd      = text "+#"
-  ppr SSub      = text "-#"
-  ppr SMul      = text "*#"
-  ppr SDiv      = text "/#"
-  needsParens = const False

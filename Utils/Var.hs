@@ -14,6 +14,10 @@ module Utils.Var
 , FcTyVar, FcTmVar, DictVar
   -- * Convert a source renamed variable to a target variable of the same kind
 , rnTmVarToFcTmVar, rnTyVarToFcTyVar
+  -- * STG Variables and translation functions
+, SVar, rnFcTmVarToSVar
+  -- * STG special variables
+, mkStgMainBindVar, stgMainBindName
   -- * Generating fresh variables
 , freshRnTmVar, freshRnTyVar, freshFcTmVar, freshFcTyVar, freshDictVar
 ) where
@@ -172,6 +176,27 @@ rnTyVarToFcTyVar _ {- PsTyVar {} -}  = error "We need GHC 8.0"
 -- | Convert a source renamed term variable to a System F type variable
 rnTmVarToFcTmVar :: HsTmVar Name -> FcTmVar
 rnTmVarToFcTmVar (HsTmVar name) = FcTmVar name
+
+-- * STG Variables
+-- ------------------------------------------------------------------------------
+
+-- | Variable
+newtype SVar = SVar {svar_name :: Name}
+
+rnFcTmVarToSVar :: FcTmVar -> SVar
+rnFcTmVarToSVar (FcTmVar name) = SVar name
+
+-- | Variable to which main program expression is bound
+mkStgMainBindVar :: SVar
+mkStgMainBindVar = SVar stgMainBindName
+
+-- | Name to which main program expression is bound
+stgMainBindName :: Name
+stgMainBindName = mkName (mkSym "main") stgMainBindUnique
+
+instance PrettyPrint SVar where
+  ppr           = ppr . svar_name
+  needsParens = const False
 
 -- * The Symable Class: Everything we can get a Sym out of
 -- ------------------------------------------------------------------------------

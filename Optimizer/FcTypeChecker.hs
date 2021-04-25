@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
 
-module Optimizer.FcTypeChecker (fcOptElaborate) where
+module Optimizer.FcTypeChecker (fcOptElaborate, fcResElaborate) where
 
 import Optimizer.FcTypes
 import Backend.STGTypes
@@ -199,10 +199,8 @@ tcType (FcTyCon tc) = lookupTyConKindM tc
 mkDataConTy :: ([FcTyVar], [FcType], FcTyCon) -> FcType
 mkDataConTy (as, arg_tys, tc) = fcTyAbs as $ fcTyArr arg_tys $ fcTyConApp tc (map FcTyVar as)
 
--- | Type check a primitive term
-tcTmPrim :: PrimTm -> FcM FcType
-tcTmPrim (PrimOpTm (PrimIntOp _)) = return mkIntBinopTy
-tcTmPrim (PrimLitTm (PInt _))     = return mkFcIntTy
+mkPrimOpTy :: ([FcType], FcType) -> FcType
+mkPrimOpTy = uncurry fcTyArr
 
 -- | Ensure that all types are syntactically the same
 ensureIdenticalTypes :: [FcType] -> FcM ()
@@ -212,24 +210,9 @@ ensureIdenticalTypes types = unless (go types) $ throwError "Type mismatch in ca
     go []       = True
     go (ty:tys) = all (eqFcTypes ty) tys
 
-ensureMatchingArgTypes :: [FcType] -> [FcType] -> FcM ()
-ensureMatchingArgTypes []       []      = return ()
-ensureMatchingArgTypes rand_tys arg_tys
-  | length rand_tys == length arg_tys   
-    = unless (all (uncurry eqFcTypes) (zip rand_tys arg_tys)) $
-      throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "data constructor argument type mismatch"
-        $$ (text "given: " <+> ppr rand_tys)
-        $$ (text "expected: " <+> ppr arg_tys))
-  | length rand_tys < length arg_tys
-    = throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "data constructor application unsaturated"
-        $$ (text "given: " <+> ppr rand_tys)
-        $$ (text "expected: " <+> ppr arg_tys))
-  | length rand_tys < length arg_tys
-    = throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "data constructor application oversaturated"
-        $$ (text "given: " <+> ppr rand_tys)
-        $$ (text "expected: " <+> ppr arg_tys))
-
--- | Checks if argument types match, returns 
+-- | Matches rand_tys to arg_tys with alpha-equality. 
+-- |   returns the tail of arg_tys in case rand_tys is shorter than arg_tys
+-- |   throws an error when unequal types are encountered, or rand_tys is longer than arg_tys
 matchArgumentTypes :: [FcType] -> [FcType] -> FcM [FcType]
 matchArgumentTypes rand_tys arg_tys = go rand_tys arg_tys >>= \case
   Just rest_tys -> return rest_tys
@@ -245,12 +228,13 @@ matchArgumentTypes rand_tys arg_tys = go rand_tys arg_tys >>= \case
       True  -> go r_tys a_tys
       False -> return Nothing
 
--- | Returns argument types and result type of a primitive operation
+-- | Yields argument types and result type of a primitive operation
 lookupPrimOp :: PrimOp -> FcM ([FcType],FcType)
-lookupPrimOp (PrimIntOp op) = return ([mkFcIntTy, mkFcIntTy], mkFcIntTy)
+lookupPrimOp (PrimIntOp _) = return ([mkFcIntTy, mkFcIntTy], mkFcIntTy)
 
-tcPrimLit :: PrimLit -> FcM FcType
-tcPrimLit (PInt _) = return mkFcIntTy
+-- | Yields type of a primitive literal
+lookupPrimLit :: PrimLit -> FcM FcType
+lookupPrimLit (PInt _) = return mkFcIntTy
 
 -- * Phase agnostic type checking functions
 -- ----------------------------------------------------------------------------
@@ -269,10 +253,12 @@ tcFcDataDecl (FcDataDecl _tc as dcs) = do
 
 -- | Typecheck an optimizer program
 tcFcOptProgram :: FcOptProgram -> FcM (FcType, FcResProgram)
+-- ^ type check a datatype declaration
 tcFcOptProgram (FcPgmDataDecl decl pgm) = do
   tcFcDataDecl decl
   (ty, pgm') <- tcFcOptProgram pgm
   return (ty, FcPgmDataDecl decl pgm')
+-- ^ type check top level binding and add to context, TC rest of program in new context
 tcFcOptProgram (FcPgmValDecl bind pgm) = do
   (ctx, bind') <- tcFcOptBind bind
   (ty, pgm') <- setCtxM ctx $ tcFcOptProgram pgm
@@ -280,6 +266,7 @@ tcFcOptProgram (FcPgmValDecl bind pgm) = do
 -- ^ type check program term, wrap into FcPgmTerm
 tcFcOptProgram (FcPgmTerm tm) = second FcPgmTerm <$> tcFcOptTerm tm
 
+-- | Type check an optimizer term
 tcFcOptTerm :: FcOptTerm -> FcM (FcType, FcResTerm)
 -- ^ Type check a type abstraction
 tcFcOptTerm (FcOptTmTyAbs as t) = do
@@ -312,7 +299,7 @@ tcFcOptTerm (FcOptTmAbs vs tm) = do
   return (fval_bind_ty bind, FcResTmLet [bind] (FcResTmApp (FcRatorVar $ fval_bind_var bind) []))
 tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, FcResTmApp (FcRatorVar x) [])
 -- ^ Type check a primitive literal
-tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = tcPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
+tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = lookupPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
 -- ^ Type check a datacon (fallback for dc arity 0)
 tcFcOptTerm (FcOptTmDataCon dc) = tcFcOptTmApp (FcOptTmDataCon dc) []
 -- ^ Type check a primitive operator (fallback for primop without application around it)
@@ -324,7 +311,6 @@ tcFcOptTerm (FcOptTmPrim (PrimOpTm op)) = do
   let rator_ab = FcResAbs (zipExact arg_vars arg_tys) 
                    (FcResTmApp (FcRatorPOp op) (map FcAtVar arg_vars))
   return (rator_ty, FcResTmLet [FcBind rator_var rator_ty rator_ab] (FcResTmApp (FcRatorVar rator_var) []))
-
 
 -- | Type check an optimizer value binding.
 tcFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
@@ -419,7 +405,7 @@ tcFcOptAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
 
 tcFcOptPAlt :: FcType -> FcOptPAlt -> FcM (FcType, FcResPAlt)
 tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
-  lit_ty <- tcPrimLit lit
+  lit_ty <- lookupPrimLit lit
   unless (scr_ty `eqFcTypes` lit_ty) $
     throwErrorM (text "tcOptPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
   second (FcPAlt lit) <$> tcFcOptTerm rhs
@@ -457,7 +443,7 @@ tcFcOptTmAppTerms (t:ts) = do
     -- variables and literals can directly be added to the atoms list
     (FcOptTmVar x) -> lookupTmVarM x >>= 
       \ty -> return (ty:tys, binds, FcAtVar x  :ats)
-    (FcOptTmPrim (PrimLitTm lit)) -> tcPrimLit lit >>= 
+    (FcOptTmPrim (PrimLitTm lit)) -> lookupPrimLit lit >>= 
       \ty -> return (ty:tys, binds, FcAtLit lit:ats)
     -- general terms get bound to a variable in the binds list
     _ -> do
@@ -501,17 +487,95 @@ mkFcResBind tm = do
 tcFcResProgram :: FcResProgram -> FcM (FcType, SProg)
 tcFcResProgram (FcPgmDataDecl decl pgm) = tcFcDataDecl decl >> tcFcResProgram pgm
 tcFcResProgram (FcPgmValDecl  bind pgm) = do
-  bind_s <- tcFcResBind bind
-  (ty,SProg binds) <- tcFcResProgram pgm
-  return (ty, SProg $ SBinds bind_s $ Just binds)
--- tcFcResProgram (FcPgmTerm tm) = do
---   (ty, expr) <- tcFcResTerm tm
+  (new_ctx, bind_s) <- tcFcResBind bind
+  (ty,SProg binds_s) <- setCtxM new_ctx $ tcFcResProgram pgm
+  return (ty, SProg (bind_s:binds_s))
+tcFcResProgram (FcPgmTerm tm) = do
+  (ty, expr) <- tcFcResTerm tm
+  let main_bind = SBind mkStgMainBindVar (SLForm [] NUble [] expr)
+  return (ty, SProg [main_bind])
   
 
+tcFcResTerm :: FcResTerm -> FcM (FcType, SExpr)
+tcFcResTerm (FcResTmCase tm alts) = do
+  (scr_ty, scr_exp) <- tcFcResTerm tm
+  second (SCase scr_exp) <$> tcFcResAlts scr_ty alts
+tcFcResTerm (FcResTmApp rator ats) = tcFcResApp rator ats
 
-tcFcResBind :: FcResBind -> FcM SBind
-tcFcResBind (FcBind x ty ab) = throwUnimplErrorM
 
+tcFcResApp :: FcRator -> [FcAtom] -> FcM (FcType, SExpr)
+tcFcResApp (FcRatorVar x) ats = do
+  ty_rt <- lookupTmVarM x
+  (ty_res, ats_s) <- tcFcResAts ats ty_rt
+  let x_s = rnFcTmVarToSVar x
+  return (ty_res, SApp x_s ats_s)
+tcFcResApp (FcRatorPOp op) ats = do
+  ty_op <- mkPrimOpTy <$> lookupPrimOp op
+  (ty_res, ats_s) <- tcFcResAts ats ty_op
+  return (ty_res, SPApp op ats_s)
+tcFcResApp (FcRatorCon dc) ats = do
+  ty_dc <- mkDataConTy <$> lookupDataConTyM dc
+  (ty_res, ats_s) <- tcFcResAts ats ty_dc
+  let dc_s = (SCon . unFcDC) dc
+  return (ty_res, SCApp dc_s ats_s)
+
+tcFcResAlts :: FcType -> FcResAlts -> FcM (FcType, SAlts)
+tcFcResAlts scr_ty alts = do
+  (tys, alts_s) <- case alts of
+    (FcAAlts alts') -> second SAAlts . unzip <$> mapM (tcFcResAAlt scr_ty) alts'
+    (FcPAlts alts') -> second SPAlts . unzip <$> mapM (tcFcResPAlt scr_ty) alts'
+  ensureIdenticalTypes tys
+  return (head tys, alts_s)
+
+tcFcResAAlt :: FcType -> FcResAAlt -> FcM (FcType, SAAlt)
+tcFcResAAlt _ _ = throwUnimplErrorM
+-- tcFcResAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
+--   Just (tc, tys) -> do
+--     tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
+--     (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+--     unless (dc_tc == tc) $
+--       throwErrorM (text "tcOptAAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
+--     let ty_subst = mconcat (zipWithExact (|->) as tys)   -- Create substitution
+--     let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys  -- and fill in type variables in argument types
+--     second (FcAAlt (FcConPat dc xs)) <$> extendCtxTmsM xs real_arg_tys (tcFcOptTerm rhs)
+--   Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+
+tcFcResPAlt :: FcType -> FcResPAlt -> FcM (FcType, SPAlt)
+tcFcResPAlt scr_ty (FcPAlt lit rhs) = do
+  lit_ty <- lookupPrimLit lit
+  unless (scr_ty `eqFcTypes` lit_ty) $
+    throwErrorM (text "tcResPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
+  second (SPAlt lit) <$> tcFcResTerm rhs
+
+tcFcResBind :: FcResBind -> FcM (FcCtx,SBind)
+tcFcResBind _ = throwUnimplErrorM
+
+-- | Implementation of the |-AT relation
+-- | Type checks application of atoms to an operator of type ty_rt
+tcFcResAts :: [FcAtom] -> FcType -> FcM (FcType, [SAtom])
+tcFcResAts []                ty_rt = return (ty_rt, [])
+-- ^ apply a type to the operand type
+tcFcResAts (FcAtType ty:ats) ty_rt = case ty_rt of
+  (FcTyAbs a ty_rt') -> tcFcResAts ats (substFcTyInTy (a |-> ty) ty_rt')
+  _other             -> throwErrorM (text "tcFcResAts" <+> colon <+> text "malformed type application"
+                        $$ text "expected TyAbs, got: " <+> ppr ty_rt)
+-- ^ apply an operand to the operator
+tcFcResAts (rand:ats) ty_rt = do
+  -- get operand type and translation
+  (ty_rd, at_s) <- case rand of
+    (FcAtVar x) -> lookupTmVarM x  >>= \ty -> return (ty, SAtVar $ rnFcTmVarToSVar x)
+    (FcAtLit k) -> lookupPrimLit k >>= \ty -> return (ty, SAtLit k)
+  -- get result type
+  (ty_arg, ty_rt') <- case isFcArrowTy ty_rt of
+    Just tys -> return tys
+    Nothing -> throwErrorM (text "tcFcResAts" <+> colon <+> text "oversaturated application"
+                           $$ text "operator type is: " <+> ppr ty_rt)
+  -- check operand type match
+  ty_rd `alphaEqFcTypes` ty_arg >>= \eq -> unless eq $
+    throwErrorM (text "tcFcResAts" <+> colon <+> text "incorrect argument type"
+                $$ text "given:" <+> ppr ty_rd 
+                $$ text "expected:" <+> ppr ty_arg)
+  second (at_s:) <$> tcFcResAts ats ty_rt'
 
 -- * Invoke the complete System F type checker
 -- ----------------------------------------------------------------------------
@@ -543,13 +607,13 @@ fcOptElaborate fc_init_gbl_env us pgm = runWriter
     fc_init_ctx = mempty
 
 
--- fcResElab :: FcGblEnv -> UniqueSupply -> FcResProgram
---          -> (Either String ((FcType, SProg, UniqueSupply), FcGblEnv), Trace)
--- fcResElab fc_init_gbl_env us pgm = runWriter
---                                  $ runExceptT
---                                  $ flip runStateT  fc_init_gbl_env
---                                  $ flip runReaderT fc_init_ctx
---                                  $ flip runUniqueSupplyT us
---                                  $ tcFcResProgram pgm
---   where
---     fc_init_ctx = mempty
+fcResElaborate :: FcGblEnv -> UniqueSupply -> FcResProgram
+         -> (Either String (((FcType, SProg), UniqueSupply), FcGblEnv), Trace)
+fcResElaborate fc_init_gbl_env us pgm = runWriter
+                                 $ runExceptT
+                                 $ flip runStateT  fc_init_gbl_env
+                                 $ flip runReaderT fc_init_ctx
+                                 $ flip runUniqueSupplyT us
+                                 $ tcFcResProgram pgm
+  where
+    fc_init_ctx = mempty
