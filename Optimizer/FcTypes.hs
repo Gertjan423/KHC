@@ -309,7 +309,7 @@ fcOptDataConApp dc ty = fcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) [ty])
 fcOptDictApp :: FcOptTerm -> [DictVar] -> FcOptTerm
 fcOptDictApp tm ds = FcOptTmApp tm (map FcOptTmVar ds)
 
--- * Collecting Free Variables Out Of Objects
+-- * Collecting Free Type Variables Out Of Objects
 -- ------------------------------------------------------------------------------
 
 instance ContainsFreeTyVars FcType FcTyVar where
@@ -369,6 +369,51 @@ instance ContainsFreeTyVars (FcPAlt FcOptTerm) FcTyVar where
 
 instance ContainsFreeTyVars (FcPAlt FcResTerm) FcTyVar where
   ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
+
+-- * Collecting Free Term Variables Out Of Terms
+-- ------------------------------------------------------------------------------
+
+instance ContainsFreeTmVars FcOptTerm FcTmVar where
+  ftmvsOf (FcOptTmVar x)        = [x]
+  ftmvsOf (FcOptTmPrim _)       = []
+  ftmvsOf (FcOptTmDataCon _)    = []
+  ftmvsOf (FcOptTmAbs vs tm)    = ftmvsOf tm \\ (fst . unzip) vs
+  ftmvsOf (FcOptTmApp tm tms)   = ftmvsOf tm ++ ftmvsOf tms
+  ftmvsOf (FcOptTmTyAbs _ tm)   = ftmvsOf tm
+  ftmvsOf (FcOptTmTyApp tm _)   = ftmvsOf tm
+  ftmvsOf (FcOptTmLet bind tm)  = (ftmvsOf bind ++ ftmvsOf tm) \\ [fval_bind_var bind]
+  ftmvsOf (FcOptTmCase tm alts) = ftmvsOf tm ++ ftmvsOf alts
+
+instance ContainsFreeTmVars FcResTerm FcTmVar where
+  ftmvsOf (FcResTmApp rt ats)   = ftmvsOf rt ++ ftmvsOf ats
+  ftmvsOf (FcResTmTyAbs _ tm)   = ftmvsOf tm
+  ftmvsOf (FcResTmLet binds tm) = (ftmvsOf binds ++ ftmvsOf tm) \\ map fval_bind_var binds
+  ftmvsOf (FcResTmCase tm alts) = ftmvsOf tm ++ ftmvsOf alts
+  ftmvsOf (FcResTmLit _)        = []
+
+instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcBind a) FcTmVar where
+  ftmvsOf (FcBind x _ rhs) = ftmvsOf rhs \\ [x]
+
+instance ContainsFreeTmVars FcResAbs FcTmVar where
+  ftmvsOf (FcResAbs vs tm) = ftmvsOf tm \\ (fst . unzip) vs
+
+instance ContainsFreeTmVars FcRator FcTmVar where
+  ftmvsOf (FcRatorVar x) = [x]
+  ftmvsOf _other         = []
+
+instance ContainsFreeTmVars FcAtom FcTmVar where
+  ftmvsOf (FcAtVar x) = [x]
+  ftmvsOf _other      = []
+
+instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcAlts a) FcTmVar where
+  ftmvsOf (FcAAlts alts) = ftmvsOf alts
+  ftmvsOf (FcPAlts alts) = ftmvsOf alts
+
+instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcAAlt a) FcTmVar where
+  ftmvsOf (FcAAlt (FcConPat _ xs) tm) = ftmvsOf tm \\ xs
+
+instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcPAlt a) FcTmVar where
+  ftmvsOf (FcPAlt _ tm) = ftmvsOf tm
 
 -- * Pretty printing
 -- ----------------------------------------------------------------------------
