@@ -5,7 +5,7 @@ module Main (main, runTest) where
 import Frontend.HsParser      (hsParse)
 import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
-import Optimizer.FcTypeChecker  (fcOptElaborate)
+import Optimizer.FcTypeChecker  (fcOptElaborate, fcResElaborate)
 import Optimizer.FcPreprocessor (mergeAppAbsOptProg)
 -- import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
@@ -43,12 +43,19 @@ runTest file = do
               putStrLn "------------------------------ Program Theory -----------------------------"
               putStrLn $ renderWithColor $ ppr theory
               case fcOptElaborate envs us2 (mergeAppAbsOptProg fc_opt_pgm) of
-                (Left err,_) -> throwMainError "System F typechecker" err
-                (Right (((fc_ty, fc_res_pgm), us3), _fc_env), _trace) -> do
+                (Left err,_) -> throwMainError "System F opt typechecker" err
+                (Right (((fc_opt_ty, fc_res_pgm), us3), _fc_env), _trace) -> do
                   putStrLn "--------------------- System F Optimizer Program Type ---------------------"
-                  putStrLn $ renderWithColor $ ppr fc_ty
+                  putStrLn $ renderWithColor $ ppr fc_opt_ty
                   putStrLn "----------------------- System F Restricted Program -----------------------"
                   putStrLn $ renderWithColor $ ppr fc_res_pgm
+                  case fcResElaborate envs us2 fc_res_pgm of
+                    (Left err,_) -> throwMainError "System F res typechecker" err
+                    (Right (((fc_res_ty, stg_pgm), us3), _fc_env), _trace) -> do
+                      putStrLn "--------------------- System F Optimizer Program Type ---------------------"
+                      putStrLn $ renderWithColor $ ppr fc_res_ty
+                      putStrLn "------------------------------- STG Program -------------------------------"
+                      putStrLn $ renderWithColor $ ppr stg_pgm
                   -- let res = fcEvaluate us3 fc_pgm
                   -- putStrLn "-------------------------- System F Result --------------------------------"
                   -- putStrLn $ renderWithColor $ ppr res
