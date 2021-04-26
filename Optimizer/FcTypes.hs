@@ -241,7 +241,7 @@ data FcResTerm
 data FcBind a where
   FcBind :: { fval_bind_var :: FcTmVar
             , fval_bind_ty  :: FcType 
-            , fval_bind_tm  :: a 
+            , fval_bind_rhs  :: a 
             } -> FcBind a
 
 type FcOptBind = FcBind FcOptTerm -- ^ Optimizer binds regular terms

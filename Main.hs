@@ -49,9 +49,9 @@ runTest file = do
                   putStrLn $ renderWithColor $ ppr fc_opt_ty
                   putStrLn "----------------------- System F Restricted Program -----------------------"
                   putStrLn $ renderWithColor $ ppr fc_res_pgm
-                  case fcResElaborate envs us2 fc_res_pgm of
+                  case fcResElaborate envs us3 fc_res_pgm of
                     (Left err,_) -> throwMainError "System F res typechecker" err
-                    (Right (((fc_res_ty, stg_pgm), us3), _fc_env), _trace) -> do
+                    (Right (((fc_res_ty, stg_pgm), us4), _fc_env), _trace) -> do
                       putStrLn "--------------------- System F Optimizer Program Type ---------------------"
                       putStrLn $ renderWithColor $ ppr fc_res_ty
                       putStrLn "------------------------------- STG Program -------------------------------"
