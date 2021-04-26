@@ -24,7 +24,7 @@ import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
-import Data.Bifunctor (second)
+import Data.Bifunctor (first, second)
 
 -- * Type checking monad
 -- ----------------------------------------------------------------------------
@@ -199,6 +199,22 @@ tcType (FcTyCon tc) = lookupTyConKindM tc
 mkDataConTy :: ([FcTyVar], [FcType], FcTyCon) -> FcType
 mkDataConTy (as, arg_tys, tc) = fcTyAbs as $ fcTyArr arg_tys $ fcTyConApp tc (map FcTyVar as)
 
+mkPrimOpTy :: ([FcType], FcType) -> FcType
+mkPrimOpTy = uncurry fcTyArr
+
+
+-- | Type check application of types to an operator type
+tcFcTyApp :: FcType -> [FcType] -> FcM FcType
+tcFcTyApp rt_ty []             = return rt_ty
+tcFcTyApp rt_ty (rd_ty:rd_tys) = do
+  kind <- tcType rd_ty
+  case rt_ty of 
+    FcTyAbs a rt_ty'
+      | kindOf a == kind -> tcFcTyApp (substVar a rd_ty rt_ty') rd_tys
+    _other               -> throwErrorM (text "tcFcTyApp" <+> colon <+> text "malformed type application"
+                                         $$ text "type given: " <+> ppr rt_ty <+> text "does not have kind star")
+
+
 -- | Ensure that all types are syntactically the same
 ensureIdenticalTypes :: [FcType] -> FcM ()
 ensureIdenticalTypes types = unless (go types) $ throwError "Type mismatch in case rhs"
@@ -265,51 +281,59 @@ tcFcOptProgram (FcPgmTerm tm) = second FcPgmTerm <$> tcFcOptTerm tm
 
 -- | Type check an optimizer term
 tcFcOptTerm :: FcOptTerm -> FcM (FcType, FcResTerm)
--- ^ Type check a type abstraction
-tcFcOptTerm (FcOptTmTyAbs as t) = do
-  tyVarsNotInFcCtxM as
-  (ty, t') <- extendCtxTysM as (map kindOf as) (tcFcOptTerm t)
-  return (fcTyAbs as ty, t')
--- ^ Type check a type application (fallback, TODO)
-tcFcOptTerm (FcOptTmTyApp tm tys) = do
-  bind <- mkFcResBind tm
-  res_ty <- tcFcOptTyApp (fval_bind_ty bind) tys
-  let tyapp_r = FcResTmApp (FcRatorVar (fval_bind_var bind)) (map FcAtType tys)
-  return (res_ty, FcResTmLet [bind] tyapp_r)
 -- ^ Type check a term application
 tcFcOptTerm (FcOptTmApp t ts) = tcFcOptTmApp t ts
+-- ^ Type check a type abstraction
+tcFcOptTerm (FcOptTmTyAbs as tm) = tcFcOptTmTyAbs as tm
+-- ^ Type check a type application
+tcFcOptTerm (FcOptTmTyApp tm tys) = tcFcOptTmTyApp tm tys
 -- ^ Type check a case statement
 tcFcOptTerm (FcOptTmCase tm alts) = do
-  (ty, tm_r) <- tcFcOptTerm tm
-  (tys, alts_r) <- case alts of
-    (FcAAlts alts') -> second FcAAlts . unzip <$> mapM (tcFcOptAAlt ty) alts'
-    (FcPAlts alts') -> second FcPAlts . unzip <$> mapM (tcFcOptPAlt ty) alts'
-  ensureIdenticalTypes tys
-  return (head tys, FcResTmCase tm_r alts_r)
+  (scr_ty, tm_r) <- tcFcOptTerm tm
+  second (FcResTmCase tm_r) <$> tcFcOptAlts scr_ty alts
 -- ^ Type check a local let binding
 tcFcOptTerm (FcOptTmLet bind t) = do
   (ctx, bind_r) <- tcFcOptBind bind
   second (FcResTmLet [bind_r]) <$> setCtxM ctx (tcFcOptTerm t)
+-- ^ Type check a primitive literal
+tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = lookupPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
+-- ^ Type check a primitive operator (fallback for primop without application around it)
+tcFcOptTerm (FcOptTmPrim (PrimOpTm op)) = tcFcOptTmApp (FcOptTmPrim (PrimOpTm op)) []
 -- ^ Type check an abstraction (fallback)
 tcFcOptTerm (FcOptTmAbs vs tm) = do
   bind <- mkFcResBind (FcOptTmAbs vs tm)
   return (fval_bind_ty bind, FcResTmLet [bind] (FcResTmApp (FcRatorVar $ fval_bind_var bind) []))
+-- ^ Type check a term variable (fallback)
 tcFcOptTerm (FcOptTmVar x) = lookupTmVarM x >>= \ty -> return (ty, FcResTmApp (FcRatorVar x) [])
--- ^ Type check a primitive literal
-tcFcOptTerm (FcOptTmPrim (PrimLitTm lit)) = lookupPrimLit lit >>= \ty -> return (ty, FcResTmLit lit)
 -- ^ Type check a datacon (fallback for dc arity 0)
 tcFcOptTerm (FcOptTmDataCon dc) = tcFcOptTmApp (FcOptTmDataCon dc) []
--- ^ Type check a primitive operator (fallback for primop without application around it)
-tcFcOptTerm (FcOptTmPrim (PrimOpTm op)) = do
-  (arg_tys, res_ty) <- lookupPrimOp op
-  arg_vars <- mapM (const freshFcTmVar) arg_tys
-  rator_var <- freshFcTmVar
-  let rator_ty = foldr mkFcArrowTy res_ty arg_tys
-  let rator_ab = FcResAbs (zipExact arg_vars arg_tys) 
-                   (FcResTmApp (FcRatorPOp op) (map FcAtVar arg_vars))
-  return (rator_ty, FcResTmLet [FcBind rator_var rator_ty rator_ab] (FcResTmApp (FcRatorVar rator_var) []))
 
--- | Type check an optimizer value binding.
+-- | Type check a type abstraction
+tcFcOptTmTyAbs :: [FcTyVar] -> FcOptTerm -> FcM (FcType, FcResTerm)
+tcFcOptTmTyAbs as tm = do
+  tyVarsNotInFcCtxM as
+  -- bind variables and typecheck term, wrap resulting type into TyABs
+  first (fcTyAbs as) <$> extendCtxTysM as (map kindOf as) (tcFcOptTerm tm)
+
+-- | Type check a type application
+tcFcOptTmTyApp :: FcOptTerm -> [FcType] -> FcM (FcType, FcResTerm)
+tcFcOptTmTyApp tm tys = do
+  -- bind term to variable
+  bind <- mkFcResBind tm
+  res_ty <- tcFcTyApp (fval_bind_ty bind) tys
+  let tyapp_r = FcResTmApp (FcRatorVar (fval_bind_var bind)) (map FcAtType tys)
+  return (res_ty, FcResTmLet [bind] tyapp_r)
+
+-- | Type check case alts
+tcFcOptAlts :: FcType -> FcOptAlts -> FcM (FcType, FcResAlts)
+tcFcOptAlts scr_ty alts = do 
+  (tys, alts_r) <- case alts of
+    (FcAAlts alts') -> second FcAAlts . unzip <$> mapM (tcFcOptAAlt scr_ty) alts'
+    (FcPAlts alts') -> second FcPAlts . unzip <$> mapM (tcFcOptPAlt scr_ty) alts'
+  ensureIdenticalTypes tys
+  return (head tys, alts_r)
+
+-- | Type check a value binding.
 tcFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
 tcFcOptBind (FcBind x ty tm) = do
   tmVarNotInFcCtxM x  -- GEORGE: Ensure is not already bound
@@ -408,17 +432,6 @@ tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
   second (FcPAlt lit) <$> tcFcOptTerm rhs
 
 
--- | Type check application of types to an operator type
-tcFcOptTyApp :: FcType -> [FcType] -> FcM FcType
-tcFcOptTyApp rt_ty []             = return rt_ty
-tcFcOptTyApp rt_ty (rd_ty:rd_tys) = do
-  kind <- tcType rd_ty
-  case rt_ty of 
-    FcTyAbs a rt_ty'
-      | kindOf a == kind -> tcFcOptTyApp (substVar a rd_ty rt_ty') rd_tys
-    _other               -> throwErrorM (text "tcFcOptTyApp" <+> colon <+> text "malformed type application"
-      $$ text "type given: " <+> ppr rt_ty <+> text "does not have kind star")
-
 -- -- | Determine the resulting type from the application
 getAppResultTy :: FcType -> [FcType] -> FcM FcType
 getAppResultTy rator_ty []                 = return rator_ty
@@ -492,11 +505,38 @@ tcFcResProgram (FcPgmTerm tm) = do
   let main_bind = SBind mkStgMainBindVar (SLForm [] NUble [] expr)
   return (ty, SProg [main_bind])
   
-
+-- | Type check a term
 tcFcResTerm :: FcResTerm -> FcM (FcType, SExpr)
 tcFcResTerm (FcResTmCase tm alts) = do
   (scr_ty, scr_exp) <- tcFcResTerm tm
   second (SCase scr_exp) <$> tcFcResAlts scr_ty alts
+tcFcResTerm (FcResTmApp rator ats) = tcFcResApp rator ats
+tcFcResTerm (FcResTmTyAbs as tm) = tcFcResTmTyAbs as tm
+tcFcResTerm (FcResTmLet binds ab) = throwUnimplErrorM
+
+-- | Type check an application term
+tcFcResApp :: FcRator -> [FcAtom] -> FcM (FcType, SExpr)
+tcFcResApp (FcRatorVar x) ats = do
+  ty_rt <- lookupTmVarM x
+  (ty_res, ats_s) <- tcFcResAts ats ty_rt
+  let x_s = rnFcTmVarToSVar x
+  return (ty_res, SApp x_s ats_s)
+tcFcResApp (FcRatorPOp op) ats = do
+  ty_op <- mkPrimOpTy <$> lookupPrimOp op
+  (ty_res, ats_s) <- tcFcResAts ats ty_op
+  return (ty_res, SPApp op ats_s)
+tcFcResApp (FcRatorCon dc) ats = do
+  ty_dc <- mkDataConTy <$> lookupDataConTyM dc
+  (ty_res, ats_s) <- tcFcResAts ats ty_dc
+  let dc_s = (SCon . unFcDC) dc
+  return (ty_res, SCApp dc_s ats_s)
+
+-- | Type check a type abstraction term
+tcFcResTmTyAbs :: [FcTyVar] -> FcResTerm -> FcM (FcType, SExpr)
+tcFcResTmTyAbs as tm = do
+  tyVarsNotInFcCtxM as
+  -- Type check term and wrap type in TyAbs
+  first (fcTyAbs as) <$> extendCtxTysM as (map kindOf as) (tcFcResTerm tm)
 
 tcFcResAlts :: FcType -> FcResAlts -> FcM (FcType, SAlts)
 tcFcResAlts scr_ty alts = do
@@ -531,7 +571,6 @@ tcFcResBind _ = throwUnimplErrorM
 
 -- | Implementation of the |-AT relation
 -- | Type checks application of atoms to an operator of type ty_rt
--- | 
 tcFcResAts :: [FcAtom] -> FcType -> FcM (FcType, [SAtom])
 tcFcResAts []                ty_rt = return (ty_rt, [])
 -- ^ apply a type to the operand type
@@ -545,10 +584,12 @@ tcFcResAts (rand:ats) ty_rt = do
   (ty_rd, at_s) <- case rand of
     (FcAtVar x) -> lookupTmVarM x  >>= \ty -> return (ty, SAtVar $ rnFcTmVarToSVar x)
     (FcAtLit k) -> lookupPrimLit k >>= \ty -> return (ty, SAtLit k)
+  -- get result type
   (ty_arg, ty_rt') <- case isFcArrowTy ty_rt of
     Just tys -> return tys
     Nothing -> throwErrorM (text "tcFcResAts" <+> colon <+> text "oversaturated application"
                            $$ text "operator type is: " <+> ppr ty_rt)
+  -- check operand type match
   ty_rd `alphaEqFcTypes` ty_arg >>= \eq -> unless eq $
     throwErrorM (text "tcFcResAts" <+> colon <+> text "incorrect argument type"
                 $$ text "given:" <+> ppr ty_rd 

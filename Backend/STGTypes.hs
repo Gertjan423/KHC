@@ -25,7 +25,7 @@ newtype SProg = SProg [SBind]
 -- ----------------------------------------------------------------------------
 
 -- | Constructor
-newtype SCon = SCon {scon_clos :: SVar}
+newtype SCon = SCon {scon_name :: Name}
 
 -- | Variable binding list
 -- A list of bindings containing at least one element.
@@ -151,5 +151,5 @@ instance PrettyPrint SAtom where
   needsParens = const False
 
 instance PrettyPrint SCon where
-  ppr           = ppr . scon_clos
+  ppr           = ppr . scon_name
   needsParens = const False 

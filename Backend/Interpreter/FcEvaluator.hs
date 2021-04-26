@@ -138,7 +138,7 @@ lookupVbM a = do
 lookupVb :: FcTmVar -> Ctx -> Maybe (FcTerm, FcType)
 lookupVb _ [] = Nothing
 lookupVb a (x:xs)
-  | a == fval_bind_var x = Just (fval_bind_tm x, fval_bind_ty x)
+  | a == fval_bind_var x = Just (fval_bind_rhs x, fval_bind_ty x)
   | otherwise            = lookupVb a xs
 
 -- * Invoke the complete System F evaluator
