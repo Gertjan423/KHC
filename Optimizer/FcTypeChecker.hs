@@ -217,13 +217,13 @@ tcFcTyApp rt_ty (rd_ty:rd_tys) = do
                                          $$ text "type given: " <+> ppr rt_ty <+> text "does not have kind star")
 
 
--- | Ensure that all types are syntactically the same
+-- | Ensure that all types are alpha-equivalent
 ensureIdenticalTypes :: [FcType] -> FcM ()
-ensureIdenticalTypes types = unless (go types) $ throwError "Type mismatch in case rhs"
+ensureIdenticalTypes types = go types >>= \allEq -> unless allEq $ throwError "Type mismatch in case rhs"
   where
-    go :: [FcType] -> Bool
-    go []       = True
-    go (ty:tys) = all (eqFcTypes ty) tys
+    go :: [FcType] -> FcM Bool
+    go []       = return True
+    go (ty:tys) = and <$> mapM (alphaEqFcTypes ty) tys
 
 -- | Matches rand_tys to arg_tys with alpha-equality. 
 -- |   returns the tail of arg_tys in case rand_tys is shorter than arg_tys
@@ -314,11 +314,16 @@ tcFcOptTerm (FcOptTmDataCon dc) = tcFcOptTmApp (FcOptTmDataCon dc) []
 tcFcOptTmTyAbs :: [FcTyVar] -> FcOptTerm -> FcM (FcType, FcResTerm)
 tcFcOptTmTyAbs as tm = do
   tyVarsNotInFcCtxM as
-  -- bind variables and typecheck term, wrap resulting type into TyABs
-  first (fcTyAbs as) <$> extendCtxTysM as (map kindOf as) (tcFcOptTerm tm)
+  -- bind variables and typecheck term, wrap resulting type into TyAbs, resulting term in FcResTmTyAbs
+  bimap (fcTyAbs as) (FcResTmTyAbs as) <$> extendCtxTysM as (map kindOf as) (tcFcOptTerm tm)
 
 -- | Type check a type application
 tcFcOptTmTyApp :: FcOptTerm -> [FcType] -> FcM (FcType, FcResTerm)
+-- ^ application to variable
+tcFcOptTmTyApp (FcOptTmVar x) tys = do
+  rt_ty <- lookupTmVarM x
+  res_ty <- tcFcTyApp rt_ty tys
+  return (res_ty, FcResTmApp (FcRatorVar x) (map FcAtType tys))
 tcFcOptTmTyApp tm tys = do
   -- bind term to variable
   bind <- mkFcResBind tm
@@ -380,7 +385,7 @@ tcFcOptTmApp (FcOptTmPrim (PrimOpTm op)) ts = do
                        (FcResTmApp (FcRatorPOp op) (ats ++ map FcAtVar eta_vars))
       -- add binding, replace application by empty application to variable
       return (rator_ty, FcBind rator_var rator_ty rator_ab:binds, FcResTmApp (FcRatorVar rator_var) [])
-  return (eta_res_ty, FcResTmLet eta_binds res_tm)
+  return (eta_res_ty, fcResTmLet eta_binds res_tm)
 -- ^ application of terms to data constructor (without type application)
 tcFcOptTmApp (FcOptTmDataCon dc) tms = tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) []) tms
 -- ^ application of terms to data constructor (saturated)
@@ -404,7 +409,7 @@ tcFcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) k_tys) tms = do
                        (FcResTmApp (FcRatorCon dc) (map FcAtType k_tys ++ ats ++ map FcAtVar eta_vars))
       -- add binding, replace application by empty application to variable
       return (rator_ty, FcBind rator_var rator_ty rator_ab:binds, FcResTmApp (FcRatorVar rator_var) [])
-  return (eta_res_ty, FcResTmLet eta_binds res_tm)
+  return (eta_res_ty, fcResTmLet eta_binds res_tm)
 -- ^ application of terms to a term (general case excluding all above)
 tcFcOptTmApp t ts = do
   rator_bind <- mkFcResBind t
@@ -500,7 +505,10 @@ tcFcResTerm (FcResTmCase tm alts) = do
   second (SCase scr_exp) <$> tcFcResAlts scr_ty alts
 tcFcResTerm (FcResTmApp rator ats) = tcFcResApp rator ats
 tcFcResTerm (FcResTmTyAbs as tm) = tcFcResTmTyAbs as tm
-tcFcResTerm (FcResTmLet binds ab) = throwUnimplErrorM
+tcFcResTerm (FcResTmLet binds tm) = do
+  (new_ctx, binds_s) <- tcFcResBind binds
+  second (SLet binds_s) <$> setCtxM new_ctx (tcFcResTerm tm)
+tcFcResTerm (FcResTmLit lit) = lookupPrimLit lit >>= \ty -> return (ty, SELit lit)
 
 -- | Type check an application term
 tcFcResApp :: FcRator -> [FcAtom] -> FcM (FcType, SExpr)
@@ -535,27 +543,51 @@ tcFcResAlts scr_ty alts = do
   return (head tys, alts_s)
 
 tcFcResAAlt :: FcType -> FcResAAlt -> FcM (FcType, SAAlt)
-tcFcResAAlt _ _ = throwUnimplErrorM
--- tcFcResAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
---   Just (tc, tys) -> do
---     tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
---     (as, arg_tys, dc_tc) <- lookupDataConTyM dc
---     unless (dc_tc == tc) $
---       throwErrorM (text "tcOptAAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
---     let ty_subst = mconcat (zipWithExact (|->) as tys)   -- Create substitution
---     let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys  -- and fill in type variables in argument types
---     second (FcAAlt (FcConPat dc xs)) <$> extendCtxTmsM xs real_arg_tys (tcFcOptTerm rhs)
---   Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+tcFcResAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
+  Just (tc, tys) -> do
+    tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
+    (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+    unless (dc_tc == tc) $ throwBinTyErrorM "tcResAAlt" 
+      "The type of the scrutinee does not match that of the pattern" dc_tc tc
+    let ty_subst = mconcat (zipWithExact (|->) as tys)      -- Create substitution
+    let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys -- and fill in type variables in argument types
+    let aalt_s = SAAlt (SCon $ unFcDC dc) (map rnFcTmVarToSVar xs)
+    second aalt_s <$> extendCtxTmsM xs real_arg_tys (tcFcResTerm rhs)
+  Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
 
 tcFcResPAlt :: FcType -> FcResPAlt -> FcM (FcType, SPAlt)
 tcFcResPAlt scr_ty (FcPAlt lit rhs) = do
   lit_ty <- lookupPrimLit lit
   unless (scr_ty `eqFcTypes` lit_ty) $
-    throwErrorM (text "tcResPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
+    throwBinTyErrorM "tcResPAlt" "scrutinee literal type mismatch" scr_ty lit_ty
   second (SPAlt lit) <$> tcFcResTerm rhs
 
-tcFcResBind :: FcResBind -> FcM (FcCtx,SBind)
-tcFcResBind _ = throwUnimplErrorM
+tcFcResBind :: [FcResBind] -> FcM (FcCtx,[SBind])
+tcFcResBind binds = do
+  let xs = map fval_bind_var binds       -- pattern matching over lists would be nice, but this will have to do
+  let tys = map fval_bind_ty binds
+  mapM_ tmVarNotInFcCtxM xs              -- ensure variables not already bound
+  kinds <- mapM tcType tys               -- check all kind star
+  unless (all (KStar ==) kinds) $ throwUnTyErrorM "tcFcResBind" "kind mismatch" "given kinds" kinds
+  new_ctx <- extendCtxTmsM xs tys ask    -- extend context with newly bound variables
+  -- type check right hand sides in new context
+  (tys', lfs) <- unzip <$> setCtxM new_ctx (mapM (tcFcResAbs . fval_bind_rhs) binds)
+  unless (all (uncurry eqFcTypes) (zip tys tys')) $ -- ensure types match in declaration and checking
+    throwBinTyErrorM "tcFcResBind" "type mismatch" tys tys'
+  return (new_ctx, sBinds (map rnFcTmVarToSVar xs) lfs)
+
+
+tcFcResAbs :: FcResAbs -> FcM (FcType, SLForm)
+tcFcResAbs (FcResAbs vs tm) = do
+  let (xs_b, tys) = unzip vs    -- get bound variables and their types
+  (ty_tm, expr) <- extendCtxTmsM xs_b tys (tcFcResTerm tm) -- type check in context extended with bound variables
+  let ty_ab = foldr mkFcArrowTy ty_tm tys
+  let xs_f = ftmvsOf tm \\ xs_b -- get the free variables from the term
+  return (ty_ab, SLForm
+    (map rnFcTmVarToSVar xs_f)
+    Uble  -- set all closures to updatable for now
+    (map rnFcTmVarToSVar xs_b)
+    expr)
 
 -- | Implementation of the |-AT relation
 -- | Type checks application of atoms to an operator of type ty_rt

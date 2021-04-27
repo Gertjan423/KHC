@@ -283,32 +283,46 @@ type FcResPAlt = FcPAlt FcResTerm
 -- | Data constructor pattern
 data FcConPat = FcConPat FcDataCon [FcTmVar]
 
--- * Some smart constructors (uncurried variants)
+-- * Some smart constructors 
+-- These constructors all take a list of some form as argument. When that
+-- list is empty, they are transparent (meaning they just return the nested
+-- term as is)
 -- ----------------------------------------------------------------------------
 
--- | Uncurried version of data constructor FcTmAbs
+-- | Smart FcOptTmAbs constructor
 fcOptTmAbs :: [(FcTmVar, FcType)] -> FcOptTerm -> FcOptTerm
-fcOptTmAbs = FcOptTmAbs
+fcOptTmAbs [] = id
+fcOptTmAbs vs = FcOptTmAbs vs
 
--- | Uncurried version of data constructor FcTmTyAbs
+-- | Smart FcOptTmTyAbs constructor
 fcOptTmTyAbs :: [FcTyVar] -> FcOptTerm -> FcOptTerm
-fcOptTmTyAbs = FcOptTmTyAbs
+fcOptTmTyAbs [] = id
+fcOptTmTyAbs as = FcOptTmTyAbs as
 
--- | Uncurried version of data constructor FcTmApp
+-- | Smart FcOptTmApp constructor
 fcOptTmApp :: FcOptTerm -> [FcOptTerm] -> FcOptTerm
-fcOptTmApp = FcOptTmApp
+fcOptTmApp tm [] = tm
+fcOptTmApp tm tms = FcOptTmApp tm tms
 
--- | Uncurried version of data constructor FcTmTyApp
+-- | Smart FcOptTmTyApp constructor
 fcOptTmTyApp :: FcOptTerm -> [FcType] -> FcOptTerm
-fcOptTmTyApp = FcOptTmTyApp
+fcOptTmTyApp tm [] = tm
+fcOptTmTyApp tm tys = FcOptTmTyApp tm tys
+
+-- | Smart FcResTmLet constructor
+fcResTmLet :: [FcResBind] -> FcResTerm -> FcResTerm
+fcResTmLet [] = id
+fcResTmLet binds = FcResTmLet binds
+
+-- | Apply a term to a list of dictionary variables
+fcOptDictApp :: FcOptTerm -> [DictVar] -> FcOptTerm
+fcOptDictApp tm [] = tm
+fcOptDictApp tm ds = FcOptTmApp tm (map FcOptTmVar ds)
 
 -- | Create a data constructor application
 fcOptDataConApp :: FcDataCon -> FcType -> [FcOptTerm] -> FcOptTerm
 fcOptDataConApp dc ty = fcOptTmApp (FcOptTmTyApp (FcOptTmDataCon dc) [ty])
 
--- | Apply a term to a list of dictionary variables
-fcOptDictApp :: FcOptTerm -> [DictVar] -> FcOptTerm
-fcOptDictApp tm ds = FcOptTmApp tm (map FcOptTmVar ds)
 
 -- * Collecting Free Type Variables Out Of Objects
 -- ------------------------------------------------------------------------------
@@ -498,10 +512,8 @@ instance PrettyPrint FcOptTerm where
   needsParens FcOptTmCase     {} = True
 
 instance PrettyPrint FcResTerm where
-  ppr (FcResTmApp rand ats)   = foldl (<+>) (ppr rand) (map pprPar ats)
-  ppr (FcResTmTyAbs tvs tm)   = foldr ((<+>) . pprLbd) (ppr tm) tvs
-    where pprLbd a = hang (colorDoc yellow (text "/\\") <> ppr a <> dot) 2 (ppr tm)
-
+  ppr (FcResTmApp rator ats)   = foldl (<+>) (ppr rator) (map pprPar ats)
+  ppr (FcResTmTyAbs tvs tm)   = hang (colorDoc yellow (text "/\\") <> ppr tvs <> dot) 2 (ppr tm)
   ppr (FcResTmLet bind tm)
     =  (colorDoc yellow (text "let") <+> ppr bind)
     $$ (colorDoc yellow (text "in" ) <+> ppr tm  )

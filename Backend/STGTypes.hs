@@ -27,19 +27,25 @@ newtype SProg = SProg [SBind]
 -- | Constructor
 newtype SCon = SCon {scon_name :: Name}
 
+instance Symable SCon where
+  symOf = symOf . scon_name
+
 -- | Variable binding list
 -- A list of bindings containing at least one element.
 -- data SBinds = SBinds SBind (Maybe SBinds)
 -- | Variable binding
 data SBind  = SBind  SVar SLForm
 
+-- | Smart constructor for list of STG binds
+sBinds :: [SVar] -> [SLForm] -> [SBind]
+sBinds = zipWith SBind
+
 -- ** Expressions and atoms
 -- ----------------------------------------------------------------------------
 
 -- | Expression
 data SExpr 
-  = SLet  [SBind]  SExpr  -- ^ Let expression
-  | SLetR [SBind]  SExpr  -- ^ Letrec expression
+  = SLet  [SBind]  SExpr  -- ^ Let expression (mutually recursive)
   | SCase SExpr    SAlts  -- ^ Case expression
   | SApp  SVar    [SAtom] -- ^ Application to variable
   | SCApp SCon    [SAtom] -- ^ Fully saturated constructor application
@@ -92,11 +98,6 @@ instance PrettyPrint SExpr where
                         $$
                         hang (colorDoc yellow (text "in"))
                           2 (ppr e)
-  ppr (SLetR bs  e  ) = hang (colorDoc yellow (text "letrec"))
-                          2 (ppr bs)
-                        $$
-                        hang (colorDoc yellow (text "in"))
-                          2 (ppr e)
   ppr (SCase e   alt) = hang (colorDoc yellow (text "case") <+> ppr e <+> colorDoc yellow (text "of"))
                              2 (ppr alt)
   ppr (SApp  f   as ) = ppr f  <+> hsepmap ppr as
@@ -104,7 +105,6 @@ instance PrettyPrint SExpr where
   ppr (SPApp op  as ) = ppr op <+> hsepmap ppr as
   ppr (SELit lit    ) = ppr lit
   needsParens (SLet  _ _) = False
-  needsParens (SLetR _ _) = False
   needsParens (SCase _ _) = False
   needsParens (SApp  _ _) = True
   needsParens (SCApp _ _) = True
@@ -151,5 +151,5 @@ instance PrettyPrint SAtom where
   needsParens = const False
 
 instance PrettyPrint SCon where
-  ppr           = ppr . scon_name
+  ppr           = ppr . symOf
   needsParens = const False 
