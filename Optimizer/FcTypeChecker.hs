@@ -351,9 +351,7 @@ tcFcOptBind (FcBind x ty tm) = do
     tm'                 -> do
       (ty_tm, tm_r) <- extendCtxTmM x ty (tcFcOptTerm tm')
       return (ty_tm, FcResAbs [] tm_r)
-  unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
-                                $$ parens (text "given:" <+> ppr ty)
-                                $$ parens (text "inferred:" <+> ppr ty'))
+  unless (ty `eqFcTypes` ty') $ throwBinTyErrorM "tcFcOptBind" "Global let type doesnt match:" ty ty'
   ctx_ext <- extendCtxTmM x ty ask -- extend context with bound variable
   return (ctx_ext, FcBind x ty ab)
 
@@ -566,8 +564,8 @@ tcFcResAts []                ty_rt = return (ty_rt, [])
 -- ^ apply a type to the operand type
 tcFcResAts (FcAtType ty:ats) ty_rt = case ty_rt of
   (FcTyAbs a ty_rt') -> tcFcResAts ats (substFcTyInTy (a |-> ty) ty_rt')
-  _other             -> throwErrorM (text "tcFcResAts" <+> colon <+> text "malformed type application"
-                        $$ text "expected TyAbs, got: " <+> ppr ty_rt)
+  _other             -> throwUnTyErrorM "tcFcResAts" "malformed type application" 
+                          "expected TyAbs, got: " ty_rt
 -- ^ apply an operand to the operator
 tcFcResAts (rand:ats) ty_rt = do
   -- get operand type and translation
@@ -577,13 +575,11 @@ tcFcResAts (rand:ats) ty_rt = do
   -- get result type
   (ty_arg, ty_rt') <- case isFcArrowTy ty_rt of
     Just tys -> return tys
-    Nothing -> throwErrorM (text "tcFcResAts" <+> colon <+> text "oversaturated application"
-                           $$ text "operator type is: " <+> ppr ty_rt)
+    Nothing -> throwUnTyErrorM "tcFcResAts" "oversaturated application"
+                 "operator type is: " ty_rt
   -- check operand type match
   ty_rd `alphaEqFcTypes` ty_arg >>= \eq -> unless eq $
-    throwErrorM (text "tcFcResAts" <+> colon <+> text "incorrect argument type"
-                $$ text "given:" <+> ppr ty_rd 
-                $$ text "expected:" <+> ppr ty_arg)
+    throwBinTyErrorM "tcFcResAts" "incorrect argument type" ty_arg ty_rd
   second (at_s:) <$> tcFcResAts ats ty_rt'
 
 -- * Invoke the complete System F type checker
