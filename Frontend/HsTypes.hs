@@ -120,6 +120,7 @@ data Term a = TmVar (HsTmVar a)                   -- ^ Term variable
 type PsTerm = Term Sym
 type RnTerm = Term Name
 
+-- | Case alternatives
 data HsAlts a 
   = HsAAlts [HsAAlt a]
   | HsPAlts [HsPAlt a]
@@ -127,16 +128,19 @@ data HsAlts a
 type PsAlts = HsAlts Sym
 type RnAlts = HsAlts Name
 
+-- | Algebraic alternative (matching on data constructor pattern)
 data HsAAlt a = HsAAlt (HsPat a) (Term a)
 
 type PsAAlt = HsAAlt Sym
 type RnAAlt = HsAAlt Name
 
+-- | Primitive alternative (matching on primitive literals)
 data HsPAlt a = HsPAlt PrimLit   (Term a)
 
 type PsPAlt = HsPAlt Sym
 type RnPAlt = HsPAlt Name
 
+-- | Data constructor pattern
 data HsPat a = HsPat (HsDataCon a) [HsTmVar a]
 
 type PsPat = HsPat Sym

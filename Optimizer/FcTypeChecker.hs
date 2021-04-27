@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE LambdaCase           #-}
@@ -8,23 +7,25 @@ module Optimizer.FcTypeChecker (fcOptElaborate, fcResElaborate) where
 import Optimizer.FcTypes
 import Backend.STGTypes
 
-import Utils.Substitution
-import Utils.Var
-import Utils.Kind
-import Utils.Prim
-import Utils.Unique
 import Utils.AssocList
 import Utils.Ctx
-import Utils.PrettyPrint
 import Utils.Errors
-import Utils.Utils
+import Utils.FreeVars (ftmvsOf)
+import Utils.Kind
+import Utils.PrettyPrint
+import Utils.Prim
+import Utils.Substitution
 import Utils.Trace
+import Utils.Unique
+import Utils.Utils
+import Utils.Var
 
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (first, second, bimap)
+import Data.List ((\\))
 
 -- * Type checking monad
 -- ----------------------------------------------------------------------------
@@ -47,7 +48,8 @@ lookupTyConInfoM = lookupFcGblEnvM fc_env_tc_info
 
 -- | Lookup the kind of a type constructor
 lookupTyConKindM :: FcTyCon -> FcM Kind
-lookupTyConKindM tc = foldr KArr KStar . map kindOf . fc_tc_type_args <$> lookupTyConInfoM tc
+lookupTyConKindM tc = foldr (KArr . kindOf) KStar . fc_tc_type_args
+  <$> lookupTyConInfoM tc
 
 -- | Lookup the info of a data constructor
 lookupDataConInfoM :: FcDataCon -> FcM FcDataConInfo
@@ -432,7 +434,7 @@ tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
   second (FcPAlt lit) <$> tcFcOptTerm rhs
 
 
--- -- | Determine the resulting type from the application
+-- | Determine the resulting type from the application
 getAppResultTy :: FcType -> [FcType] -> FcM FcType
 getAppResultTy rator_ty []                 = return rator_ty
 getAppResultTy rator_ty (rand_ty:rand_tys) = case isFcArrowTy rator_ty of
@@ -460,18 +462,6 @@ tcFcOptTmAppTerms (t:ts) = do
       bind <- mkFcResBind t
       return (fval_bind_ty bind:tys, bind:binds, FcAtVar (fval_bind_var bind):ats)
  
--- convertFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
--- convertFcOptBind (FcBind x ty t) = do
---   tmVarNotInFcCtxM x
---   kind <- tcType ty
---   unless (kind == KStar) $
---     throwErrorM (text "tcFcOptBind: Kind mismatch")
---   (ty', ab) <- case t of 
---     (FcOptTmAbs vs t') -> 
---     t'                 -> 
---   unless (ty `eqFcTypes` ty') $ throwErrorM (text "Global let type doesnt match:"
---                                 $$ parens (text "given:" <+> ppr ty)
---                                 $$ parens (text "inferred:" <+> ppr ty'))
 
 mkFcApp :: [FcResBind] -> FcRator -> [FcAtom] -> FcResTerm
 mkFcApp []    r ats = FcResTmApp r ats
@@ -497,9 +487,9 @@ mkFcResBind tm = do
 tcFcResProgram :: FcResProgram -> FcM (FcType, SProg)
 tcFcResProgram (FcPgmDataDecl decl pgm) = tcFcDataDecl decl >> tcFcResProgram pgm
 tcFcResProgram (FcPgmValDecl  bind pgm) = do
-  (new_ctx, bind_s) <- tcFcResBind bind
-  (ty,SProg binds_s) <- setCtxM new_ctx $ tcFcResProgram pgm
-  return (ty, SProg (bind_s:binds_s))
+  (new_ctx, binds_s) <- tcFcResBind [bind]                    -- type check binding and get new ctx
+  (ty,SProg binds_p) <- setCtxM new_ctx $ tcFcResProgram pgm  -- type check program in new ctx
+  return (ty, SProg (binds_s ++ binds_p))                     -- combine bindings into new program
 tcFcResProgram (FcPgmTerm tm) = do
   (ty, expr) <- tcFcResTerm tm
   let main_bind = SBind mkStgMainBindVar (SLForm [] NUble [] expr)
@@ -613,7 +603,7 @@ tcFcResAts (rand:ats) ty_rt = do
 --     fc_init_ctx     = mempty
 --     fc_init_gbl_env = FcGblEnv tc_env dc_env
 
-
+-- | Type check an optimizer program and translate it into a restricted program
 fcOptElaborate :: FcGblEnv -> UniqueSupply -> FcOptProgram
          -> (Either String (((FcType, FcResProgram), UniqueSupply), FcGblEnv), Trace)
 fcOptElaborate fc_init_gbl_env us pgm = runWriter
@@ -625,7 +615,7 @@ fcOptElaborate fc_init_gbl_env us pgm = runWriter
   where
     fc_init_ctx = mempty
 
-
+-- | Type check a restricted program and translate it into an STG program 
 fcResElaborate :: FcGblEnv -> UniqueSupply -> FcResProgram
          -> (Either String (((FcType, SProg), UniqueSupply), FcGblEnv), Trace)
 fcResElaborate fc_init_gbl_env us pgm = runWriter

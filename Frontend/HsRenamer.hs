@@ -207,11 +207,12 @@ rnTerm (TmLet x tm1 tm2)  = do
   return (TmLet rnx rntm1 rntm2)
 rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> rnAlts alts
 
+-- | Rename case alternatives
 rnAlts :: PsAlts -> RnM RnAlts
 rnAlts (HsAAlts alts) = HsAAlts <$> mapM rnAAlt alts
 rnAlts (HsPAlts alts) = HsPAlts <$> mapM rnPAlt alts
 
--- | Rename a case alternative
+-- | Rename an algebraic case alternative
 rnAAlt :: PsAAlt -> RnM RnAAlt
 rnAAlt (HsAAlt (HsPat dc xs) tm) = do
   rndc <- lookupDataCon dc
@@ -220,6 +221,7 @@ rnAAlt (HsAAlt (HsPat dc xs) tm) = do
   rntm <- extendTmVars binds (rnTerm tm)
   return (HsAAlt (HsPat rndc rnxs) rntm)
 
+-- | Rename a primitive case alternative
 rnPAlt :: PsPAlt -> RnM RnPAlt
 rnPAlt (HsPAlt lit tm) = HsPAlt lit <$> rnTerm tm
 
@@ -397,6 +399,7 @@ hsRename us pgm = runWriter
     rn_init_ctx     = mempty
     rn_init_gbl_env = RnEnv { rn_env_cls_info = mempty
                             , rn_env_dc_info  = mempty
+                            -- integer and arrow type constructors are statically added to the global renaming environment
                             , rn_env_tc_info  = extendAssocList psIntTyCon intTyConInfo 
                                                   (extendAssocList psArrowTyCon arrowTyConInfo 
                                                     mempty)

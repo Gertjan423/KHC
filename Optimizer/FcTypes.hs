@@ -3,12 +3,13 @@ Module      : Optimizer.FcTypes
 Description : System F types used in the optimiser
 
 Datatypes representing the System F AST, with supporting functions and smart constructors.
-System F syntax is split into two phases:
-- Optimiser phase, marked with the @Opt type. These implement "vanilla" system F as it is most commonly seen.
-- Preprocessed phase, marked with the @Pre type. This variant is preprocessed to be as easily translated into STG as possible.
-The main differences are:
-- Prepped System F only allows lambda bindings inside let
-- Prepped System F supports multi variable abstraction and application
+System F syntax is broken up into two distinct syntaxes, used in 2 phases of the compiler pipeline:
+- The Optimizer syntax, prefixed with FcOpt is used as the name implies, in the optimizer
+portion of the compiler. Syntactically it is identical to the System F described in literature.
+- The Restricted syntax, prefixed with FcRes is System F but restricted to be easier to translate into STG.
+The restrictions are:
+-- Abstraction may only appear in the right hand side of a let
+-- Applications to data constructors must be fully saturated.
 -}
 
 {-# LANGUAGE DataKinds             #-}
@@ -36,7 +37,7 @@ import Data.Maybe (isJust)
 import Data.Function (on)
 import Data.List ((\\))
 
--- * Global typechecking environment
+-- * System F global typechecking environment
 -- ----------------------------------------------------------------------------
 
 data FcGblEnv = FcGblEnv { fc_env_tc_info :: AssocList FcTyCon   FcTyConInfo
@@ -250,7 +251,7 @@ type FcResBind = FcBind FcResAbs  -- ^ Preprocessed syntax binds abstractions of
 -- | Lambda abstraction
 data FcResAbs = FcResAbs [(FcTmVar,FcType)] FcResTerm
 
--- | Operand
+-- | Operators in application
 data FcRator = FcRatorVar FcTmVar
              | FcRatorPOp PrimOp
              | FcRatorCon FcDataCon
@@ -377,7 +378,7 @@ instance ContainsFreeTmVars FcOptTerm FcTmVar where
   ftmvsOf (FcOptTmVar x)        = [x]
   ftmvsOf (FcOptTmPrim _)       = []
   ftmvsOf (FcOptTmDataCon _)    = []
-  ftmvsOf (FcOptTmAbs vs tm)    = ftmvsOf tm \\ (fst . unzip) vs
+  ftmvsOf (FcOptTmAbs vs tm)    = ftmvsOf tm \\ (map fst) vs
   ftmvsOf (FcOptTmApp tm tms)   = ftmvsOf tm ++ ftmvsOf tms
   ftmvsOf (FcOptTmTyAbs _ tm)   = ftmvsOf tm
   ftmvsOf (FcOptTmTyApp tm _)   = ftmvsOf tm
@@ -477,7 +478,7 @@ instance PrettyPrint FcOptTerm where
     | FcOptTmApp   {} <- tm1    = ppr tm1    <+> pprPar tm2
     | FcOptTmTyApp {} <- tm1    = ppr tm1    <+> pprPar tm2
     | otherwise                 = pprPar tm1 <+> pprPar tm2
-  ppr (FcOptTmTyAbs tv tm)      = hang (colorDoc yellow (text "/\\") <> ppr tv <> dot) 2 (ppr tm)
+  ppr (FcOptTmTyAbs tvs tm)     = hang (colorDoc yellow (text "/\\") <> ppr tvs <> dot) 2 (ppr tm)
   ppr (FcOptTmTyApp tm ty)      = pprPar tm <+> brackets (ppr ty)
   ppr (FcOptTmDataCon dc)       = ppr dc
   ppr (FcOptTmLet bind tm)
