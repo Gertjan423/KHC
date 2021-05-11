@@ -441,11 +441,11 @@ tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
 getAppResultTy :: FcType -> [FcType] -> FcM FcType
 getAppResultTy rator_ty []                 = return rator_ty
 getAppResultTy rator_ty (rand_ty:rand_tys) = case isFcArrowTy rator_ty of
-  Just (arg_ty, rator_ty') 
-    | arg_ty `eqFcTypes` rand_ty -> getAppResultTy rator_ty' rand_tys
-    | otherwise                  -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "application types don't match"
-    $$ text "given: " <+> ppr rand_ty
-    $$ text "inferred: " <+> ppr arg_ty)
+  Just (arg_ty, rator_ty') -> arg_ty `alphaEqFcTypes` rand_ty >>= \case
+      True  -> getAppResultTy rator_ty' rand_tys
+      False -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "application types don't match"
+               $$ text "operand: " <+> ppr rand_ty
+               $$ text "operator: " <+> ppr arg_ty)
   _other -> throwErrorM (text "tcFcOptTmApp" <+> colon <+> text "oversaturated application")
 
 
@@ -635,11 +635,11 @@ tcFcResAts (rand:ats) ty_rt = do
 fcOptElaborate :: FcGblEnv -> UniqueSupply -> FcOptProgram
          -> (Either String (((FcType, FcResProgram), UniqueSupply), FcGblEnv), Trace)
 fcOptElaborate fc_init_gbl_env us pgm = runWriter
-                                 $ runExceptT
-                                 $ flip runStateT  fc_init_gbl_env
-                                 $ flip runReaderT fc_init_ctx
-                                 $ flip runUniqueSupplyT us
-                                 $ tcFcOptProgram pgm
+                                      $ runExceptT
+                                      $ flip runStateT  fc_init_gbl_env
+                                      $ flip runReaderT fc_init_ctx
+                                      $ flip runUniqueSupplyT us
+                                      $ tcFcOptProgram pgm
   where
     fc_init_ctx = mempty
 
@@ -647,10 +647,10 @@ fcOptElaborate fc_init_gbl_env us pgm = runWriter
 fcResElaborate :: FcGblEnv -> UniqueSupply -> FcResProgram
          -> (Either String (((FcType, SProg), UniqueSupply), FcGblEnv), Trace)
 fcResElaborate fc_init_gbl_env us pgm = runWriter
-                                 $ runExceptT
-                                 $ flip runStateT  fc_init_gbl_env
-                                 $ flip runReaderT fc_init_ctx
-                                 $ flip runUniqueSupplyT us
-                                 $ tcFcResProgram pgm
+                                      $ runExceptT
+                                      $ flip runStateT  fc_init_gbl_env
+                                      $ flip runReaderT fc_init_ctx
+                                      $ flip runUniqueSupplyT us
+                                      $ tcFcResProgram pgm
   where
     fc_init_ctx = mempty

@@ -6,9 +6,19 @@ Copyright   : Elias Storme, 2021
 
 Various 
 -}
-module Optimizer.FcPreprocessor (mergeAppAbsOptProg) where
+module Optimizer.FcPreprocessor (bindFreeOptTyVars, mergeAppAbsOptProg) where
 
 import Optimizer.FcTypes
+import Utils.FreeVars (ftyvsOf)
+
+-- | Wrap program term in a type abstraction binding its free type variables 
+-- (solves bug in the HsTypeChecker which loses track of some type variables)
+bindFreeOptTyVars :: FcOptProgram -> FcOptProgram
+bindFreeOptTyVars (FcPgmDataDecl decl pgm) = FcPgmDataDecl decl (bindFreeOptTyVars pgm)
+bindFreeOptTyVars (FcPgmValDecl  bind pgm) = FcPgmValDecl bind (bindFreeOptTyVars pgm)
+bindFreeOptTyVars (FcPgmTerm tm)           = case ftyvsOf tm of
+  [] -> FcPgmTerm tm
+  as -> FcPgmTerm (FcOptTmTyAbs as tm)
 
 -- | Merge applications and abstractions in an optimizer program
 -- | examples:

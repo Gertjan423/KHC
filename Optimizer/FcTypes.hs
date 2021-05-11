@@ -331,34 +331,31 @@ instance ContainsFreeTyVars FcType FcTyVar where
   ftyvsOf (FcTyVar a)       = [a]
   ftyvsOf (FcTyAbs a ty)    = ftyvsOf ty \\ [a]
   ftyvsOf (FcTyApp ty1 ty2) = ftyvsOf ty1 ++ ftyvsOf ty2
-  ftyvsOf (FcTyCon _)      = []
+  ftyvsOf (FcTyCon _)       = []
 
 instance ContainsFreeTyVars FcOptTerm FcTyVar where
   ftyvsOf (FcOptTmVar  _)        = []
   ftyvsOf (FcOptTmPrim _)        = []
-  ftyvsOf (FcOptTmAbs vs tm)     = (ftyvsOf.snd.unzip) vs ++ ftyvsOf tm
-  ftyvsOf (FcOptTmApp tm1 tm2)   = ftyvsOf tm1 ++ ftyvsOf tm2
-  ftyvsOf (FcOptTmTyAbs a tm)    = ftyvsOf tm \\ a
-  ftyvsOf (FcOptTmTyApp tm ty)   = ftyvsOf tm ++ ftyvsOf ty
+  ftyvsOf (FcOptTmAbs vs tm)     = ftyvsOf (map snd vs, tm)
+  ftyvsOf (FcOptTmApp tm tms)    = ftyvsOf (tm, tms)
+  ftyvsOf (FcOptTmTyAbs as tm)   = ftyvsOf tm \\ as
+  ftyvsOf (FcOptTmTyApp tm tys)  = ftyvsOf (tm, tys)
   ftyvsOf (FcOptTmDataCon _)     = []
-  ftyvsOf (FcOptTmLet bd tm)     = ftyvsOf bd ++ ftyvsOf tm
-  ftyvsOf (FcOptTmCase tm alts)  = ftyvsOf tm ++ ftyvsOf alts
+  ftyvsOf (FcOptTmLet bd tm)     = ftyvsOf (bd, tm)
+  ftyvsOf (FcOptTmCase tm alts)  = ftyvsOf (tm, alts)
 
 instance ContainsFreeTyVars FcResTerm FcTyVar where
   ftyvsOf (FcResTmApp _ ats)    = ftyvsOf ats
   ftyvsOf (FcResTmTyAbs as tm)  = ftyvsOf tm \\ as
-  ftyvsOf (FcResTmLet bd tm)    = ftyvsOf bd ++ ftyvsOf tm
-  ftyvsOf (FcResTmCase tm alts) = ftyvsOf tm ++ ftyvsOf alts
+  ftyvsOf (FcResTmLet bd tm)    = ftyvsOf (bd, tm)
+  ftyvsOf (FcResTmCase tm alts) = ftyvsOf (tm, alts)
   ftyvsOf (FcResTmLit _)        = []
 
-instance ContainsFreeTyVars FcOptBind FcTyVar where
-  ftyvsOf (FcBind _ a tm) = ftyvsOf a ++ ftyvsOf tm
-
-instance ContainsFreeTyVars FcResBind FcTyVar where
-  ftyvsOf (FcBind _ a ab) = ftyvsOf a ++ ftyvsOf ab
+instance (ContainsFreeTyVars a FcTyVar) => ContainsFreeTyVars (FcBind a) FcTyVar where
+  ftyvsOf (FcBind _ ty rhs) = ftyvsOf (ty, rhs)
 
 instance ContainsFreeTyVars FcResAbs FcTyVar where
-  ftyvsOf (FcResAbs vs tm) = (ftyvsOf.snd.unzip) vs ++ ftyvsOf tm
+  ftyvsOf (FcResAbs vs tm) = ftyvsOf (map snd vs, tm)
 
 instance ContainsFreeTyVars FcAtom FcTyVar where
   ftyvsOf FcAtVar {} = []
@@ -392,25 +389,25 @@ instance ContainsFreeTmVars FcOptTerm FcTmVar where
   ftmvsOf (FcOptTmVar x)        = [x]
   ftmvsOf (FcOptTmPrim _)       = []
   ftmvsOf (FcOptTmDataCon _)    = []
-  ftmvsOf (FcOptTmAbs vs tm)    = ftmvsOf tm \\ (map fst) vs
-  ftmvsOf (FcOptTmApp tm tms)   = ftmvsOf tm ++ ftmvsOf tms
+  ftmvsOf (FcOptTmAbs vs tm)    = ftmvsOf tm \\ map fst vs
+  ftmvsOf (FcOptTmApp tm tms)   = ftmvsOf (tm, tms)
   ftmvsOf (FcOptTmTyAbs _ tm)   = ftmvsOf tm
   ftmvsOf (FcOptTmTyApp tm _)   = ftmvsOf tm
-  ftmvsOf (FcOptTmLet bind tm)  = (ftmvsOf bind ++ ftmvsOf tm) \\ [fval_bind_var bind]
-  ftmvsOf (FcOptTmCase tm alts) = ftmvsOf tm ++ ftmvsOf alts
+  ftmvsOf (FcOptTmLet bind tm)  = ftmvsOf (bind, tm) \\ [fval_bind_var bind]
+  ftmvsOf (FcOptTmCase tm alts) = ftmvsOf (tm, alts)
 
 instance ContainsFreeTmVars FcResTerm FcTmVar where
-  ftmvsOf (FcResTmApp rt ats)   = ftmvsOf rt ++ ftmvsOf ats
+  ftmvsOf (FcResTmApp rt ats)   = ftmvsOf (rt, ats)
   ftmvsOf (FcResTmTyAbs _ tm)   = ftmvsOf tm
-  ftmvsOf (FcResTmLet binds tm) = (ftmvsOf binds ++ ftmvsOf tm) \\ map fval_bind_var binds
-  ftmvsOf (FcResTmCase tm alts) = ftmvsOf tm ++ ftmvsOf alts
+  ftmvsOf (FcResTmLet binds tm) = ftmvsOf (binds, tm) \\ map fval_bind_var binds
+  ftmvsOf (FcResTmCase tm alts) = ftmvsOf (tm, alts)
   ftmvsOf (FcResTmLit _)        = []
 
 instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcBind a) FcTmVar where
   ftmvsOf (FcBind x _ rhs) = ftmvsOf rhs \\ [x]
 
 instance ContainsFreeTmVars FcResAbs FcTmVar where
-  ftmvsOf (FcResAbs vs tm) = ftmvsOf tm \\ (fst . unzip) vs
+  ftmvsOf (FcResAbs vs tm) = ftmvsOf tm \\ map fst vs
 
 instance ContainsFreeTmVars FcRator FcTmVar where
   ftmvsOf (FcRatorVar x) = [x]

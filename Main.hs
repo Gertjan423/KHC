@@ -6,7 +6,7 @@ import Frontend.HsParser      (hsParse)
 import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
 import Optimizer.FcTypeChecker  (fcOptElaborate, fcResElaborate)
-import Optimizer.FcPreprocessor (mergeAppAbsOptProg)
+import Optimizer.FcPreprocessor (bindFreeOptTyVars, mergeAppAbsOptProg)
 -- import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
@@ -36,13 +36,13 @@ runTest file = do
             (Right ((((fc_opt_pgm, tc_ty, theory), envs), us2), _tc_env), _) -> do
               putStrLn "---------------------------- Elaborated Program ---------------------------"
               putStrLn $ renderWithColor $ ppr fc_opt_pgm
-              putStrLn "---------------------------- Elaborated, merged Program ---------------------------"
-              putStrLn $ renderWithColor $ ppr $ mergeAppAbsOptProg fc_opt_pgm
+              putStrLn "------------------------ Elaborated, merged Program -----------------------"
+              putStrLn $ renderWithColor $ ppr $ mergeAppAbsOptProg $ bindFreeOptTyVars fc_opt_pgm
               putStrLn "------------------------------- Program Type ------------------------------"
               putStrLn $ renderWithColor $ ppr tc_ty
               putStrLn "------------------------------ Program Theory -----------------------------"
               putStrLn $ renderWithColor $ ppr theory
-              case fcOptElaborate envs us2 (mergeAppAbsOptProg fc_opt_pgm) of
+              case fcOptElaborate envs us2 (mergeAppAbsOptProg $ bindFreeOptTyVars fc_opt_pgm) of
                 (Left err,_) -> throwMainError "System F opt typechecker" err
                 (Right (((fc_opt_ty, fc_res_pgm), us3), _fc_env), _trace) -> do
                   putStrLn "--------------------- System F Optimizer Program Type ---------------------"
@@ -65,4 +65,3 @@ runTest file = do
       | label <- colorDoc red (text phase <+> text "failure")
       , msg   <- brackets label <+> colorDoc red (text e)
       = putStrLn (renderWithColor msg)
-
