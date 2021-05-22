@@ -18,7 +18,32 @@ cabal-version:       >=1.10
 executable khc
   ghc-options:         -Wall
   main-is:             Main.hs
-  -- other-modules:
+  other-modules:
+    Frontend.Conditions,
+    Frontend.HsParser,
+    Frontend.HsRenamer,
+    Frontend.HsTypeChecker,
+    Frontend.HsTypes,
+    Optimizer.FcPreprocessor,
+    Optimizer.FcTypeChecker,
+    Optimizer.FcTypes,
+    -- Backend.Interpreter.FcEvaluator,
+    Backend.STGTypes,
+    Utils.Annotated,
+    Utils.AssocList,
+    Utils.Ctx,
+    Utils.Errors,
+    Utils.FreeVars,
+    Utils.Kind,
+    Utils.ListT,
+    Utils.PrettyPrint,
+    Utils.Prim,
+    Utils.SnocList,
+    Utils.Substitution,
+    Utils.Trace,
+    Utils.Unique,
+    Utils.Utils,
+    Utils.Var
   other-extensions:
     LambdaCase,
     FlexibleInstances,
@@ -37,5 +62,11 @@ executable khc
                      , mtl >=2.2
                      , pretty >=1.1
                      , megaparsec >= 7.0.0
+                     , llvm-hs-pure >= 9.0.0
+                     , llvm-hs-pretty >= 0.4.0
+                     , containers >= 0.6.2
+                     , utf8-string >= 1.0.0
+                     , bytestring >= 0.10.4
+                     , text >= 1.2.4.1
   -- hs-source-dirs:
   default-language:    Haskell2010
