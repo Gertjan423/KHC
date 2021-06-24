@@ -216,6 +216,8 @@ type FcOptProgram = FcProgram FcOptTerm FcOptTerm
 type FcResProgram = FcProgram FcResTerm FcResAbs
 
 -- * Terms
+-- Note: auxiliary constructs like FcBind and FcAlts are abstracted over the
+-- type of term they accept, either FcOptTerm or FcResTerm.
 -- ----------------------------------------------------------------------------
 
 -- | Syntax for the optimizer
@@ -262,8 +264,8 @@ data FcAtom = FcAtVar FcTmVar
             | FcAtType FcType
 
 data FcAlts a 
-  = FcAAlts [FcAAlt a]              -- ^ Algebraic alternatives
-  | FcPAlts [FcPAlt a]              -- ^ Primitive alternatives
+  = FcAAlts [FcAAlt a] (FcDefAlt a)     -- ^ Algebraic alternatives
+  | FcPAlts [FcPAlt a] (FcDefAlt a)     -- ^ Primitive alternatives
 
 type FcOptAlts = FcAlts FcOptTerm
 type FcResAlts = FcAlts FcResTerm
@@ -282,6 +284,14 @@ type FcResPAlt = FcPAlt FcResTerm
 
 -- | Data constructor pattern
 data FcConPat = FcConPat FcDataCon [FcTmVar]
+
+-- | Default alternative
+data FcDefAlt a = FcDefBAlt FcTmVar a    -- ^ with bound variable
+                | FcDefUAlt         a    -- ^ without bound variable
+                | FcDefEmpty             -- ^ empty default, error at runtime
+
+type FcOptDefAlt = FcDefAlt FcOptTerm
+type FcResDefAlt = FcDefAlt FcResTerm
 
 -- * Some smart constructors 
 -- These constructors all take a list of some form as argument. When that

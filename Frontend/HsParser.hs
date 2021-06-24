@@ -97,6 +97,14 @@ dot = symbol "."
 hash :: PsM ()
 hash = symbol "#"
 
+-- | Parse an underscore
+underscore :: PsM ()
+underscore = symbol "_"
+
+-- | Parse an arrow
+arrow :: PsM ()
+arrow = symbol "->"
+
 -- | Parse a comma-separated list of things
 commaSep :: PsM a -> PsM [a]
 commaSep = (`sepBy` symbol ",")
@@ -293,17 +301,23 @@ pTerm  =  pAppTerm
 pPat :: PsM PsPat
 pPat = HsPat <$> pDataCon <*> many pTmVar
 
+-- | Parse a series of alternatives
 pAlts :: PsM PsAlts
-pAlts =  try (HsAAlts <$> some (indent pAAlt))
-     <|> HsPAlts <$> some (indent pPAlt)
+pAlts =  try (HsAAlts <$> some (indent pAAlt) <*> pDefAlt)
+     <|>      HsPAlts <$> some (indent pPAlt) <*> pDefAlt
 
 -- | Parse an algebraic alternative
 pAAlt :: PsM PsAAlt
-pAAlt = HsAAlt <$> pPat <* symbol "->" <*> pTerm
+pAAlt = HsAAlt <$> pPat <* arrow <*> pTerm
 
 -- | Parse a primitive alternative
 pPAlt :: PsM PsPAlt
-pPAlt = HsPAlt <$> pPrimLit <* symbol "->" <*> pTerm
+pPAlt = HsPAlt <$> pPrimLit <* arrow <*> pTerm
+
+pDefAlt :: PsM PsDefAlt
+pDefAlt =  HsDefBAlt <$> pTmVar <* arrow <*> pTerm
+       <|> underscore *> arrow *> (HsDefUAlt <$> pTerm)
+       <|> return HsDefEmpty
 
 -- | Parse a primitive term
 pPrimTm :: PsM PrimTm

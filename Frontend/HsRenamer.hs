@@ -209,8 +209,8 @@ rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> rnAlts alts
 
 -- | Rename case alternatives
 rnAlts :: PsAlts -> RnM RnAlts
-rnAlts (HsAAlts alts) = HsAAlts <$> mapM rnAAlt alts
-rnAlts (HsPAlts alts) = HsPAlts <$> mapM rnPAlt alts
+rnAlts (HsAAlts alts def) = HsAAlts <$> mapM rnAAlt alts <*> rnDefAlt def
+rnAlts (HsPAlts alts def) = HsPAlts <$> mapM rnPAlt alts <*> rnDefAlt def
 
 -- | Rename an algebraic case alternative
 rnAAlt :: PsAAlt -> RnM RnAAlt
@@ -224,6 +224,9 @@ rnAAlt (HsAAlt (HsPat dc xs) tm) = do
 -- | Rename a primitive case alternative
 rnPAlt :: PsPAlt -> RnM RnPAlt
 rnPAlt (HsPAlt lit tm) = HsPAlt lit <$> rnTerm tm
+
+rnDefAlt :: PsDefAlt -> RnM RnDefAlt
+rnDefAlt = undefined
 
 -- | Rename a type constructor
 lookupTyCon :: PsTyCon -> RnM RnTyCon

@@ -530,14 +530,30 @@ elabHsAAlt scr_ty res_ty (HsAAlt (HsPat dc xs) rhs) = do
 
   return (FcAAlt (FcConPat fc_dc (map rnTmVarToFcTmVar xs)) fc_rhs)
 
--- 
+-- | Elaborate a primitive case alternative
 elabHsPAlt :: RnMonoTy {- Result type           -}
            -> RnPAlt   {- Primitive alternative -}
            -> GenM FcOptPAlt
 elabHsPAlt res_ty (HsPAlt lit rhs) = do
   (rhs_ty, fc_rhs) <- elabTerm rhs   -- Type check the right hand side
-  storeEqCs [res_ty :~: rhs_ty]
+  storeEqCs [res_ty :~: rhs_ty]      -- All right hand sides should have the same type
   return (FcPAlt lit fc_rhs)
+
+-- | Elaborate a default alternative
+elabHsDefAlt :: RnMonoTy {- Type of the scrutinee -}
+             -> RnMonoTy {- Result type         -}
+             -> RnDefAlt {- Default alternative -}
+             -> GenM FcDefAlt
+elabHsDefAlt scr_ty res_ty (HsDefBAlt x rhs) = do
+  (rhs_ty, fc_rhs) <- extendCtxTmM x scr_ty (elabTerm rhs) -- Bind variable and type check rhs
+  storeEqCs [res_ty :~: rhs_ty]                            -- All right hand sides should have the same type
+  return (FcDefBAlt (rnTmVarToFcTmVar x) fc_rhs)
+elabHsDefAlt _      res_ty (HsDefUAlt   rhs) = do
+  (rhs_ty, fc_rhs) <- elabTerm rhs                         -- No variable to bind, just elaborate rhs
+  storeEqCs [res_ty :~: rhs_ty]                            -- All right hand sides should have the same type
+  return (FcDefUAlt fc_rhs)
+elabHsDefAlt _      _       HsDefEmpty       = return FcDefEmpty
+
 
 -- | Covert a renamed type variable to a System F type
 rnTyVarToFcType :: RnTyVar -> FcType

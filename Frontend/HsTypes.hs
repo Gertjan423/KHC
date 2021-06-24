@@ -122,8 +122,8 @@ type RnTerm = Term Name
 
 -- | Case alternatives
 data HsAlts a 
-  = HsAAlts [HsAAlt a]
-  | HsPAlts [HsPAlt a]
+  = HsAAlts [HsAAlt a] (HsDefAlt a)
+  | HsPAlts [HsPAlt a] (HsDefAlt a)
 
 type PsAlts = HsAlts Sym
 type RnAlts = HsAlts Name
@@ -146,9 +146,17 @@ data HsPat a = HsPat (HsDataCon a) [HsTmVar a]
 type PsPat = HsPat Sym
 type RnPat = HsPat Name
 
+-- | Default alternative
+data HsDefAlt a = HsDefBAlt (HsTmVar a) (Term a)   -- ^ with bound variable
+                | HsDefUAlt (Term a)               -- ^ without bound variable
+                | HsDefEmpty                       -- ^ empty default, error at runtime
+
+type PsDefAlt = HsDefAlt Sym
+type RnDefAlt = HsDefAlt Name
+
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsAlts a) where
-  ppr (HsAAlts alts) = vcat $ map ppr alts
-  ppr (HsPAlts alts) = vcat $ map ppr alts
+  ppr (HsAAlts alts def) = vcat $ map ppr alts ++ [ppr def]
+  ppr (HsPAlts alts def) = vcat $ map ppr alts ++ [ppr def]
   needsParens _      = True
 
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsAAlt a) where
@@ -162,6 +170,11 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (HsPAlt a) where
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsPat a) where
   ppr (HsPat dc xs) = ppr dc <+> hsep (map ppr xs)
   needsParens _     = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsDefAlt a) where
+  ppr (HsDefBAlt x tm) = ppr x            <+> arrow <+> ppr tm
+  ppr (HsDefUAlt   tm) = (text "default") <+> arrow <+> ppr tm
+  ppr (HsDefEmpty    ) = (text "default") <+> arrow <+> (text "undefined")
 
 -- * Type Patterns
 -- ------------------------------------------------------------------------------
