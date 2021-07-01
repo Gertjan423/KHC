@@ -64,7 +64,12 @@ mergeAppAbsOptBind (FcBind x ty tm) = FcBind x ty (mergeAppAbsOptTm tm)
 -- | Merge applications and abstractions in alternatives
 -- | just map mergeAppAbsOptTm over all nested terms in the alts
 mergeAppAbsOptAlts :: FcOptAlts -> FcOptAlts
-mergeAppAbsOptAlts (FcAAlts alts) = FcAAlts $ map mergeAppAbsOptAAlt alts
+mergeAppAbsOptAlts (FcAAlts alts def) = FcAAlts (map mergeAppAbsOptAAlt alts) (mergeAppAbsOptDefAlt def)
   where mergeAppAbsOptAAlt (FcAAlt pat tm) = FcAAlt pat (mergeAppAbsOptTm tm)
-mergeAppAbsOptAlts (FcPAlts alts) = FcPAlts $ map mergeAppAbsOptPAlt alts
+mergeAppAbsOptAlts (FcPAlts alts def) = FcPAlts (map mergeAppAbsOptPAlt alts) (mergeAppAbsOptDefAlt def)
   where mergeAppAbsOptPAlt (FcPAlt lit tm) = FcPAlt lit (mergeAppAbsOptTm tm)
+
+mergeAppAbsOptDefAlt :: FcOptDefAlt -> FcOptDefAlt
+mergeAppAbsOptDefAlt (FcDefBAlt x tm) = FcDefBAlt x $ mergeAppAbsOptTm tm
+mergeAppAbsOptDefAlt (FcDefUAlt   tm) = FcDefUAlt   $ mergeAppAbsOptTm tm
+mergeAppAbsOptDefAlt  FcDefEmpty      = FcDefEmpty 

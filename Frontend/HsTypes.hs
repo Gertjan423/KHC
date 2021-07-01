@@ -175,6 +175,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (HsDefAlt a) where
   ppr (HsDefBAlt x tm) = ppr x            <+> arrow <+> ppr tm
   ppr (HsDefUAlt   tm) = (text "default") <+> arrow <+> ppr tm
   ppr (HsDefEmpty    ) = (text "default") <+> arrow <+> (text "undefined")
+  needsParens _        = True
 
 -- * Type Patterns
 -- ------------------------------------------------------------------------------

@@ -89,10 +89,10 @@ eqFcTypes (FcTyAbs v1 t1) (FcTyAbs v2 t2) = (v1 == v2)      && eqFcTypes t1 t2
 eqFcTypes (FcTyApp t1 t2) (FcTyApp t3 t4) = eqFcTypes t1 t3 && eqFcTypes t2 t4
 eqFcTypes (FcTyCon tc1)   (FcTyCon tc2)   = tc1 == tc2
 
-eqFcTypes (FcTyVar {}) _  = False
-eqFcTypes (FcTyAbs {}) _  = False
-eqFcTypes (FcTyApp {}) _  = False
-eqFcTypes (FcTyCon {}) _  = False
+eqFcTypes FcTyVar {} _  = False
+eqFcTypes FcTyAbs {} _  = False
+eqFcTypes FcTyApp {} _  = False
+eqFcTypes FcTyCon {} _  = False
 
 -- | Type Constructors
 newtype FcTyCon = FcTC { unFcTC :: Name }
@@ -120,7 +120,7 @@ data FcTyConInfo
 instance PrettyPrint FcTyConInfo where
   ppr (FcTCInfo tc type_args)
     = braces $ vcat $ punctuate comma
-    $ [ text "fc_tc_ty_con"    <+> colon <+> ppr tc
+      [ text "fc_tc_ty_con"    <+> colon <+> ppr tc
       , text "fc_tc_type_args" <+> colon <+> ppr type_args
       ]
 
@@ -149,7 +149,7 @@ data FcDataConInfo
 instance PrettyPrint FcDataConInfo where
   ppr (FcDCInfo dc univ tc arg_tys)
     = braces $ vcat $ punctuate comma
-    $ [ text "fc_dc_data_con" <+> colon <+> ppr dc
+      [ text "fc_dc_data_con" <+> colon <+> ppr dc
       , text "fc_dc_univ"     <+> colon <+> ppr univ
       , text "fc_dc_parent"   <+> colon <+> ppr tc
       , text "fc_dc_arg_tys"  <+> colon <+> ppr arg_tys
@@ -191,11 +191,11 @@ fcTyArr tys ty = foldr mkFcArrowTy ty tys
 
 -- | Uncurried version of data constructor FcTyApp
 fcTyApp :: FcType -> [FcType] -> FcType
-fcTyApp ty tys = foldl FcTyApp ty tys
+fcTyApp = foldl FcTyApp
 
 -- | Apply a type constructor to a bunch of types
 fcTyConApp :: FcTyCon -> [FcType] -> FcType
-fcTyConApp tc tys = fcTyApp (FcTyCon tc) tys
+fcTyConApp tc = fcTyApp (FcTyCon tc)
 
 -- * Programs and declarations
 -- ----------------------------------------------------------------------------
@@ -372,25 +372,20 @@ instance ContainsFreeTyVars FcAtom FcTyVar where
   ftyvsOf FcAtLit {} = []
   ftyvsOf (FcAtType  ty) = ftyvsOf ty
 
-instance ContainsFreeTyVars (FcAlts FcOptTerm) FcTyVar where
-  ftyvsOf (FcAAlts alts) = ftyvsOf alts
-  ftyvsOf (FcPAlts alts) = ftyvsOf alts
+instance (ContainsFreeTyVars a FcTyVar) => ContainsFreeTyVars (FcAlts a) FcTyVar where
+  ftyvsOf (FcAAlts alts def) = ftyvsOf alts ++ ftyvsOf def
+  ftyvsOf (FcPAlts alts def) = ftyvsOf alts ++ ftyvsOf def
 
-instance ContainsFreeTyVars (FcAlts FcResTerm) FcTyVar where
-  ftyvsOf (FcAAlts alts) = ftyvsOf alts
-  ftyvsOf (FcPAlts alts) = ftyvsOf alts
-
-instance ContainsFreeTyVars (FcAAlt FcOptTerm) FcTyVar where
+instance (ContainsFreeTyVars a FcTyVar) => ContainsFreeTyVars (FcAAlt a) FcTyVar where
   ftyvsOf (FcAAlt _ tm) = ftyvsOf tm
 
-instance ContainsFreeTyVars (FcAAlt FcResTerm) FcTyVar where
-  ftyvsOf (FcAAlt _ tm) = ftyvsOf tm
-
-instance ContainsFreeTyVars (FcPAlt FcOptTerm) FcTyVar where
+instance (ContainsFreeTyVars a FcTyVar) => ContainsFreeTyVars (FcPAlt a) FcTyVar where
   ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
 
-instance ContainsFreeTyVars (FcPAlt FcResTerm) FcTyVar where
-  ftyvsOf (FcPAlt _ tm) = ftyvsOf tm
+instance (ContainsFreeTyVars a FcTyVar) => ContainsFreeTyVars (FcDefAlt a) FcTyVar where
+  ftyvsOf (FcDefBAlt _ tm) = ftyvsOf tm
+  ftyvsOf (FcDefUAlt   tm) = ftyvsOf tm
+  ftyvsOf  FcDefEmpty      = []
 
 -- * Collecting Free Term Variables Out Of Terms
 -- ------------------------------------------------------------------------------
@@ -428,14 +423,19 @@ instance ContainsFreeTmVars FcAtom FcTmVar where
   ftmvsOf _other      = []
 
 instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcAlts a) FcTmVar where
-  ftmvsOf (FcAAlts alts) = ftmvsOf alts
-  ftmvsOf (FcPAlts alts) = ftmvsOf alts
+  ftmvsOf (FcAAlts alts def) = ftmvsOf alts ++ ftmvsOf def
+  ftmvsOf (FcPAlts alts def) = ftmvsOf alts ++ ftmvsOf def
 
 instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcAAlt a) FcTmVar where
   ftmvsOf (FcAAlt (FcConPat _ xs) tm) = ftmvsOf tm \\ xs
 
 instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcPAlt a) FcTmVar where
   ftmvsOf (FcPAlt _ tm) = ftmvsOf tm
+
+instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcDefAlt a) FcTmVar where
+  ftmvsOf (FcDefBAlt _ tm) = ftmvsOf tm
+  ftmvsOf (FcDefUAlt   tm) = ftmvsOf tm
+  ftmvsOf  FcDefEmpty      = []
 
 -- * Pretty printing
 -- ----------------------------------------------------------------------------
@@ -563,28 +563,18 @@ instance PrettyPrint FcAtom where
   needsParens _ = False
 
 -- | Pretty print alternatives
-instance PrettyPrint (FcAlts FcOptTerm) where
-  ppr (FcAAlts alts) = vcat $ map ppr alts
-  ppr (FcPAlts alts) = vcat $ map ppr alts
-  needsParens _      = False 
-instance PrettyPrint (FcAlts FcResTerm) where
-  ppr (FcAAlts alts) = vcat $ map ppr alts
-  ppr (FcPAlts alts) = vcat $ map ppr alts
-  needsParens _      = False 
+instance (PrettyPrint a) => PrettyPrint (FcAlts a) where
+  ppr (FcAAlts alts def) = vcat $ map ppr alts ++ [ppr def]
+  ppr (FcPAlts alts def) = vcat $ map ppr alts ++ [ppr def]
+  needsParens _      = False
 
 -- | Pretty print algebraic alts
-instance PrettyPrint (FcAAlt FcOptTerm) where
-  ppr (FcAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
-  needsParens _       = True
-instance PrettyPrint (FcAAlt FcResTerm) where
+instance (PrettyPrint a) => PrettyPrint (FcAAlt a) where
   ppr (FcAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
   needsParens _       = True
 
 -- | Pretty print primitive alts
-instance PrettyPrint (FcPAlt FcOptTerm) where
-  ppr (FcPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
-  needsParens _       = True
-instance PrettyPrint (FcPAlt FcResTerm) where
+instance (PrettyPrint a) => PrettyPrint (FcPAlt a) where
   ppr (FcPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
   needsParens _       = True
 
@@ -592,6 +582,13 @@ instance PrettyPrint (FcPAlt FcResTerm) where
 instance PrettyPrint FcConPat where
   ppr (FcConPat dc xs) = ppr dc <+> hsep (map ppr xs)
   needsParens _     = True
+
+-- | Pretty print default alts
+instance (PrettyPrint a) => PrettyPrint (FcDefAlt a) where
+  ppr (FcDefBAlt x tm) = ppr x            <+> arrow <+> ppr tm
+  ppr (FcDefUAlt   tm) = (text "default") <+> arrow <+> ppr tm
+  ppr (FcDefEmpty    ) = (text "default") <+> arrow <+> (text "undefined")
+  needsParens _        = True
 
 -- | Pretty print data declarations
 instance PrettyPrint FcDataDecl where

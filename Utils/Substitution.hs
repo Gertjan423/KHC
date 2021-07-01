@@ -128,25 +128,22 @@ instance SubstVar FcTyVar FcType FcAtom where
     FcAtType ty -> FcAtType (substVar a aty ty)
 
 -- | Substitute a type variable for a type in a case alternative
-instance SubstVar FcTyVar FcType FcOptAlts where
+instance (SubstVar FcTyVar FcType a) => SubstVar FcTyVar FcType (FcAlts a) where
   substVar a ty = \case
-    FcAAlts alts -> FcAAlts (substVar a ty alts)
-    FcPAlts alts -> FcPAlts (substVar a ty alts)
+    FcAAlts alts def -> FcAAlts (substVar a ty alts) (substVar a ty def)
+    FcPAlts alts def -> FcPAlts (substVar a ty alts) (substVar a ty def)
   -- GEORGE: Now the patterns do not bind type variables so we don't have to check for shadowing here.
-instance SubstVar FcTyVar FcType FcResAlts where
-  substVar a ty = \case
-    FcAAlts alts -> FcAAlts (substVar a ty alts)
-    FcPAlts alts -> FcPAlts (substVar a ty alts)
 
-instance SubstVar FcTyVar FcType FcOptAAlt where
-  substVar a ty (FcAAlt pat tm) = FcAAlt pat (substVar a ty tm)
-instance SubstVar FcTyVar FcType FcResAAlt where
+instance (SubstVar FcTyVar FcType a) => SubstVar FcTyVar FcType (FcAAlt a) where
   substVar a ty (FcAAlt pat tm) = FcAAlt pat (substVar a ty tm)
 
-instance SubstVar FcTyVar FcType FcOptPAlt where
+instance (SubstVar FcTyVar FcType a) => SubstVar FcTyVar FcType (FcPAlt a) where
   substVar a ty (FcPAlt lit tm) = FcPAlt lit (substVar a ty tm)
-instance SubstVar FcTyVar FcType FcResPAlt where
-  substVar a ty (FcPAlt lit tm) = FcPAlt lit (substVar a ty tm)
+
+instance (SubstVar FcTyVar FcType a) => SubstVar FcTyVar FcType (FcDefAlt a) where
+  substVar a ty (FcDefBAlt x tm) = FcDefBAlt x (substVar a ty tm)
+  substVar a ty (FcDefUAlt   tm) = FcDefUAlt   (substVar a ty tm)
+  substVar _ _   FcDefEmpty      = FcDefEmpty 
 
 -- * Target Language SubstVar Instances (Term Substitution)
 -- ** Optimizer syntax
