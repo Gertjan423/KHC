@@ -63,7 +63,6 @@ executable khc
                      , pretty >=1.1
                      , megaparsec >= 7.0.0
                      , llvm-hs-pure >= 9.0.0
-                     , llvm-hs-pretty >= 0.4.0
                      , containers >= 0.6.2
                      , utf8-string >= 1.0.0
                      , bytestring >= 0.10.4

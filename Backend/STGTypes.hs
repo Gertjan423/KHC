@@ -7,6 +7,10 @@ Copyright   : Elias Storme, 2020
 Datatype declarations and pretty printing code for STG abstract syntax.
 Based on definitions from the paper <https://www.microsoft.com/en-us/research/wp-content/uploads/1992/04/spineless-tagless-gmachine.pdf Peyton Jones, Simon. (1992). Implementing Lazy Functional Languages on Stock Hardware: The Spineless Tagless G-Machine.. J. Funct. Program.. 2. 127-202. 10.1017/S0956796800000319.> 
 -}
+
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances    #-}
+
 module Backend.STGTypes where
 
 import Utils.Var
@@ -47,13 +51,15 @@ sBinds = zipWith SBind
 data SExpr 
   = SLet  [SBind]  SExpr  -- ^ Let expression (mutually recursive)
   | SCase SExpr    SAlts  -- ^ Case expression
-  | SApp  SVar    [SAtom] -- ^ Application to variable
-  | SCApp SCon    [SAtom] -- ^ Fully saturated constructor application
-  | SPApp PrimOp  [SAtom] -- ^ Fully saturated primitive operation application
+  | SApp  SVar     SAtoms -- ^ Application to variable
+  | SCApp SCon     SAtoms -- ^ Fully saturated constructor application
+  | SPApp PrimOp   SAtoms -- ^ Fully saturated primitive operation application
   | SELit PrimLit         -- ^ Literal expression
 
--- | Atom
+-- | Atom, and list of atoms
 data SAtom = SAtVar SVar | SAtLit PrimLit
+type SAtoms = [SAtom]
+
 
 -- ** Case expression
 -- ----------------------------------------------------------------------------
@@ -89,20 +95,20 @@ data SUFlag
 -- ----------------------------------------------------------------------------
 
 instance PrettyPrint SProg where
-  ppr (SProg binds) = ppr binds
+  ppr (SProg binds) = fsep $ map ((<+>) (text "define") . (terminate semi) . ppr) binds
   needsParens _     = False
 
 instance PrettyPrint SExpr where
   ppr (SLet  bs  e  ) = hang (colorDoc yellow (text "let"))
-                          2 (ppr bs)
+                          2 (fsep $ map (terminate semi . ppr) bs)
                         $$
                         hang (colorDoc yellow (text "in"))
                           2 (ppr e)
   ppr (SCase e   alt) = hang (colorDoc yellow (text "case") <+> ppr e <+> colorDoc yellow (text "of"))
                              2 (ppr alt)
-  ppr (SApp  f   as ) = ppr f  <+> hsepmap ppr as
-  ppr (SCApp c   as ) = ppr c  <+> hsepmap ppr as
-  ppr (SPApp op  as ) = ppr op <+> hsepmap ppr as
+  ppr (SApp  f   as ) = ppr f  <+> ppr as
+  ppr (SCApp c   as ) = ppr c  <+> ppr as
+  ppr (SPApp op  as ) = ppr op <+> ppr as
   ppr (SELit lit    ) = ppr lit
   needsParens (SLet  _ _) = False
   needsParens (SCase _ _) = False
@@ -112,7 +118,7 @@ instance PrettyPrint SExpr where
   needsParens (SELit _  ) = False
 
 instance PrettyPrint SLForm where
-  ppr (SLForm vfs u vas e) = hsepmap ppr vfs <+> ppr u <+> ppr vas <+> text "->" <+> ppr e
+  ppr (SLForm vfs u vas e) = ppr vfs <+> ppr u <+> ppr vas <+> text "->" <+> ppr e
   needsParens = const True
 
 instance PrettyPrint SUFlag where
@@ -125,12 +131,12 @@ instance PrettyPrint SBind where
   needsParens = const False 
 
 instance PrettyPrint SAlts where
-  ppr (SAAlts as) = vcat $ map ppr as -- ++ [ppr d]
-  ppr (SPAlts as) = vcat $ map ppr as -- ++ [ppr d]
+  ppr (SAAlts as) = vcat $ map (terminate semi . ppr) as -- ++ [ppr d]
+  ppr (SPAlts as) = vcat $ map (terminate semi . ppr) as -- ++ [ppr d]
   needsParens = const False
 
 instance PrettyPrint SAAlt where
-  ppr (SAAlt c vs e) = ppr c <+> hcatmap ppr vs <+> text "->" <+> ppr e
+  ppr (SAAlt c vs e) = ppr c <+> ppr vs <+> text "->" <+> ppr e
   needsParens = const False
 
 instance PrettyPrint SPAlt where
@@ -143,6 +149,10 @@ instance PrettyPrint SDefAlt where
       pv = case vs of
         []  -> colorDoc green (text "default")
         _ -> hcatmap ppr vs
+  needsParens = const False
+
+instance {-# OVERLAPS #-} PrettyPrint SAtoms where
+  ppr = braces . fsep . punctuate comma . map ppr
   needsParens = const False
 
 instance PrettyPrint SAtom where

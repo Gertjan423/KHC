@@ -7,7 +7,7 @@ module Utils.PrettyPrint
 , hcatmap, hsepmap
 , parens, brackets, braces, quotes, doubleQuotes
 , maybeParens, maybeBrackets, maybeBraces, maybeQuotes, maybeDoubleQuotes
-, nest, hang, punctuate
+, nest, hang, punctuate, terminate
 , text, int, integer, rational, double, float, char
 , empty, blankLine, semi, comma, colon, space, equals
 , lparen, rparen, lbrack, rbrack, lbrace, rbrace
@@ -123,6 +123,11 @@ punctuate :: Doc -> [Doc] -> [Doc]
 punctuate _s []     = []
 punctuate _s [d]    = [d]
 punctuate  s (d:ds) = (d <> s) : punctuate s ds
+
+-- | Add a directly to back of b
+terminate :: Doc -> Doc -> Doc
+terminate = flip (<>)
+
 
 -- | Transform basic types
 -- ----------------------------------------------------------------------------

@@ -180,8 +180,9 @@ rnTmVarToFcTmVar (HsTmVar name) = FcTmVar name
 -- * STG Variables
 -- ------------------------------------------------------------------------------
 
--- | Variable
+-- | Variable, and list of variables
 newtype SVar = SVar {svar_name :: Name}
+type SVars = [SVar]
 
 rnFcTmVarToSVar :: FcTmVar -> SVar
 rnFcTmVarToSVar (FcTmVar name) = SVar name
@@ -194,8 +195,18 @@ mkStgMainBindVar = SVar stgMainBindName
 stgMainBindName :: Name
 stgMainBindName = mkName (mkSym "main") stgMainBindUnique
 
+-- | Check if the variable refers to the main binding
+isMainBind :: SVar -> Bool
+isMainBind x = stgMainBindName == (svar_name x)
+
 instance PrettyPrint SVar where
-  ppr           = ppr . svar_name
+  ppr x 
+    | isMainBind x = text "main"
+    | otherwise    = ppr $ svar_name x
+  needsParens = const False
+
+instance {-# OVERLAPS #-} PrettyPrint SVars where
+  ppr = braces . fsep . punctuate comma . map ppr
   needsParens = const False
 
 -- * The Symable Class: Everything we can get a Sym out of

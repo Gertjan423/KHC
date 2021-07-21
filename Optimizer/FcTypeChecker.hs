@@ -585,7 +585,7 @@ tcFcResAbs (FcResAbs vs tm) = do
   let xs_f = ftmvsOf tm \\ xs_b -- get the free variables from the term
   return (ty_ab, SLForm
     (map rnFcTmVarToSVar xs_f)
-    Uble  -- set all closures to updatable for now
+    (if (length xs_b == 0) then Uble else NUble)  -- set all closures to updatable unless they bind variables
     (map rnFcTmVarToSVar xs_b)
     expr)
 
