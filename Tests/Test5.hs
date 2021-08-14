@@ -1,11 +1,7 @@
 -- * Simple test for using primitives
 -- ----------------------------------------------------------------------------
 
-data Bool = True | False
+data Int = Int Int#
 
-f :: Int# -> Int#
-  = \x. case x of
-  	2 -> -8
-  	5 -> 2
-
--# (+# 1 (f 2)) (*# (f 4) (f 8))
+case Int (-# (+# 2 4) 4) of
+  Int v -> Int v

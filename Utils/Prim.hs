@@ -44,12 +44,12 @@ instance PrettyPrint PrimOp where
   needsParens _ = False
 
 instance PrettyPrint PrimIntOp where
-  ppr PIntAdd = text "+#"
-  ppr PIntSub = text "-#"
-  ppr PIntMul = text "*#"
+  ppr PIntAdd = text "plus#"
+  ppr PIntSub = text "minus#"
+  ppr PIntMul = text "mul#"
   -- ppr PIntEq  = text "==#"
   needsParens _ = False
 
 instance PrettyPrint PrimLit where
-  ppr (PInt x) = ppr x
+  ppr (PInt x) = ppr x <> text "#"
   needsParens _ = False

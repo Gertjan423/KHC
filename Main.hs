@@ -7,6 +7,7 @@ import Frontend.HsRenamer     (hsRename)
 import Frontend.HsTypeChecker (hsElaborate)
 import Optimizer.FcTypeChecker  (fcOptElaborate, fcResElaborate)
 import Optimizer.FcPreprocessor (bindFreeOptTyVars, mergeAppAbsOptProg)
+import Backend.Interpreter.STGiAdapter (stgToStg, runSTGI)
 -- import Backend.Interpreter.FcEvaluator    (fcEvaluate)
 
 import Utils.Unique  (newUniqueSupply)
@@ -67,8 +68,8 @@ runTest file = do
       = putStrLn (renderWithColor msg)
 
 -- | Run a single testfile
-writeSTG :: FilePath -> FilePath -> IO ()
-writeSTG infile outfile = do
+runSTG :: FilePath -> IO ()
+runSTG infile = do
   -- Parsing
   hsParse infile >>= \case
     Left err     -> throwMainError "parser" err
@@ -86,7 +87,11 @@ writeSTG infile outfile = do
                 (Right (((fc_opt_ty, fc_res_pgm), us3), _fc_env), _trace) -> 
                   case fcResElaborate envs us3 fc_res_pgm of
                     (Left err,_) -> throwMainError "System F res typechecker" err
-                    (Right (((fc_res_ty, stg_pgm), us4), _fc_env), _trace) -> writeFile outfile (render $ ppr stg_pgm)
+                    (Right (((fc_res_ty, stg_pgm), us4), _fc_env), _trace) -> do
+                      putStrLn $ renderWithColor $ ppr stg_pgm
+                      let stgiprog = stgToStg stg_pgm
+                      endState <- runSTGI stgiprog
+                      putStrLn $ show endState
 
   where
     throwMainError phase e
