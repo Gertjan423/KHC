@@ -495,7 +495,10 @@ tcFcResProgram (FcPgmValDecl  bind pgm) = do
   return (ty, SProg (binds_s ++ binds_p))                     -- combine bindings into new program
 tcFcResProgram (FcPgmTerm tm) = do
   (ty, expr) <- tcFcResTerm tm
-  let main_bind = SBind mkStgMainBindVar (SLForm [] NUble [] expr)
+  -- gather free variables from main term
+  let main_fvs = ftmvsOf tm
+  -- bind main term with free variables listed, no parameters
+  let main_bind = SBind mkStgMainBindVar (SLForm (map rnFcTmVarToSVar main_fvs) NUble [] expr)
   return (ty, SProg [main_bind])
   
 -- | Type check a term
@@ -585,7 +588,7 @@ tcFcResAbs (FcResAbs vs tm) = do
   let xs_f = ftmvsOf tm \\ xs_b -- get the free variables from the term
   return (ty_ab, SLForm
     (map rnFcTmVarToSVar xs_f)
-    Uble  -- set all closures to updatable for now
+    NUble -- (if (length xs_b == 0) then Uble else NUble)  -- set all closures to updatable unless they bind variables
     (map rnFcTmVarToSVar xs_b)
     expr)
 
