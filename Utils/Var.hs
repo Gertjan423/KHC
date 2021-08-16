@@ -19,7 +19,7 @@ module Utils.Var
   -- * STG special variables
 , mkStgMainBindVar, stgMainBindName
   -- * Generating fresh variables
-, freshRnTmVar, freshRnTyVar, freshFcTmVar, freshFcTyVar, freshDictVar
+, freshRnTmVar, freshRnTyVar, freshFcTmVar, freshFcTyVar, freshDictVar, freshSVar
 ) where
 
 import Utils.Unique
@@ -295,3 +295,5 @@ freshFcTyVar k = getUniqueM >>= return . flip FcTyVar k . MkName (MkSym "t")
 freshDictVar :: MonadUnique m => m DictVar
 freshDictVar = getUniqueM >>= return . FcTmVar . MkName (MkSym "d")
 
+freshSVar :: MonadUnique m => m SVar
+freshSVar = getUniqueM >>= return . SVar . MkName (MkSym "x")

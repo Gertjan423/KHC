@@ -91,7 +91,7 @@ runSTG infile = do
                       putStrLn $ renderWithColor $ ppr stg_pgm
                       let stgiprog = stgToStg stg_pgm
                       endState <- runSTGI stgiprog
-                      putStrLn $ show endState
+                      putStrLn "Done."
 
   where
     throwMainError phase e

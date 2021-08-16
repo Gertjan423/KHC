@@ -174,8 +174,8 @@ instance SubstVar FcTmVar FcOptTerm FcOptBind where
 
 -- | Substitute a term variable for a term in a case alternative
 instance SubstVar FcTmVar FcOptTerm FcOptAlts where
-  substVar x xtm (FcAAlts alts) = FcAAlts (substVar x xtm alts)
-  substVar x xtm (FcPAlts alts) = FcPAlts (substVar x xtm alts)
+  substVar x xtm (FcAAlts alts defAlt) = FcAAlts (substVar x xtm alts) (substVar x xtm defAlt)
+  substVar x xtm (FcPAlts alts defAlt) = FcPAlts (substVar x xtm alts) (substVar x xtm defAlt)
 
 instance SubstVar FcTmVar FcOptTerm FcOptAAlt where
   substVar x xtm (FcAAlt (FcConPat dc xs) tm)
@@ -185,6 +185,13 @@ instance SubstVar FcTmVar FcOptTerm FcOptAAlt where
 
 instance SubstVar FcTmVar FcOptTerm FcOptPAlt where
   substVar x xtm (FcPAlt lit tm) = FcPAlt lit (substVar x xtm tm)
+
+instance SubstVar FcTmVar FcOptTerm FcOptDefAlt where
+  substVar x xtm (FcDefBAlt y tm)
+    | x == y       = error "substFcTmVarInAlt: Shadowing"
+    | otherwise    = FcDefBAlt y (substVar x xtm tm)
+  substVar x xtm (FcDefUAlt tm) = FcDefUAlt (substVar x xtm tm)
+  substVar x xtm FcDefEmpty = FcDefEmpty
 
 -- ** Preprocessed syntax
 -- ------------------------------------------------------------------------------
@@ -215,8 +222,8 @@ instance SubstVar FcTmVar FcTmVar FcResAbs where
     | otherwise               = FcResAbs vs (substVar x y tm)
 
 instance SubstVar FcTmVar FcTmVar FcResAlts where
-  substVar x y (FcAAlts alts) = FcAAlts (substVar x y alts)
-  substVar x y (FcPAlts alts) = FcPAlts (substVar x y alts)
+  substVar x y (FcAAlts alts defAlt) = FcAAlts (substVar x y alts) (substVar x y defAlt)
+  substVar x y (FcPAlts alts defAlt) = FcPAlts (substVar x y alts) (substVar x y defAlt)
 
 instance SubstVar FcTmVar FcTmVar FcResAAlt where
   substVar x y (FcAAlt (FcConPat dc xs) tm)
@@ -226,6 +233,13 @@ instance SubstVar FcTmVar FcTmVar FcResAAlt where
 
 instance SubstVar FcTmVar FcTmVar FcResPAlt where
   substVar x y (FcPAlt lit tm) = FcPAlt lit (substVar x y tm)
+
+instance SubstVar FcTmVar FcTmVar FcResDefAlt where
+  substVar x y (FcDefBAlt z tm)
+    | x == z       = error "substFcTmVarInAlt: Shadowing"
+    | otherwise    = FcDefBAlt z (substVar x y tm)
+  substVar x y (FcDefUAlt tm) = FcDefUAlt (substVar x y tm)
+  substVar _ _ FcDefEmpty = FcDefEmpty
 
 -- ------------------------------------------------------------------------------
 
@@ -486,12 +500,12 @@ instance FreshenLclBndrs FcResAbs where
     FcResAbs ws <$> freshenLclBndrs tm
 
 instance FreshenLclBndrs FcOptAlts where
-  freshenLclBndrs (FcAAlts alts) = FcAAlts <$> mapM freshenLclBndrs alts
-  freshenLclBndrs (FcPAlts alts) = FcPAlts <$> mapM freshenLclBndrs alts
+  freshenLclBndrs (FcAAlts alts defAlt) = FcAAlts <$> mapM freshenLclBndrs alts <*> freshenLclBndrs defAlt
+  freshenLclBndrs (FcPAlts alts defAlt) = FcPAlts <$> mapM freshenLclBndrs alts <*> freshenLclBndrs defAlt
 
 instance FreshenLclBndrs FcResAlts where
-  freshenLclBndrs (FcAAlts alts) = FcAAlts <$> mapM freshenLclBndrs alts
-  freshenLclBndrs (FcPAlts alts) = FcPAlts <$> mapM freshenLclBndrs alts
+  freshenLclBndrs (FcAAlts alts defAlt) = FcAAlts <$> mapM freshenLclBndrs alts <*> freshenLclBndrs defAlt
+  freshenLclBndrs (FcPAlts alts defAlt) = FcPAlts <$> mapM freshenLclBndrs alts <*> freshenLclBndrs defAlt
 
 -- | Freshen the (type + term) binders of a System F case alternative
 instance FreshenLclBndrs FcOptAAlt where
@@ -510,3 +524,19 @@ instance FreshenLclBndrs FcOptPAlt where
 
 instance FreshenLclBndrs FcResPAlt where
   freshenLclBndrs (FcPAlt lit tm) = FcPAlt lit <$> freshenLclBndrs tm
+
+instance FreshenLclBndrs FcOptDefAlt where
+  freshenLclBndrs (FcDefBAlt x tm) = do
+    y <- freshFcTmVar
+    tm' <- freshenLclBndrs $ substVar x (FcOptTmVar y) tm
+    return (FcDefBAlt y tm')
+  freshenLclBndrs (FcDefUAlt tm) = freshenLclBndrs tm >>= return . FcDefUAlt
+  freshenLclBndrs FcDefEmpty = return FcDefEmpty
+
+instance FreshenLclBndrs FcResDefAlt where
+  freshenLclBndrs (FcDefBAlt x tm) = do
+    y <- freshFcTmVar
+    tm' <- freshenLclBndrs $ substVar x y tm
+    return (FcDefBAlt y tm')
+  freshenLclBndrs (FcDefUAlt tm) = freshenLclBndrs tm >>= return . FcDefUAlt
+  freshenLclBndrs FcDefEmpty = return FcDefEmpty

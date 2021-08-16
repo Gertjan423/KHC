@@ -508,10 +508,15 @@ elabHsAlts :: RnMonoTy {- Type of the scrutinee -}
            -> RnMonoTy {- Result type           -}
            -> RnAlts   {- Case alternatives     -}
            -> GenM FcOptAlts
-elabHsAlts scr_ty res_ty (HsAAlts alts) = FcAAlts <$> mapM (elabHsAAlt scr_ty res_ty) alts
-elabHsAlts scr_ty res_ty (HsPAlts alts) = do 
+elabHsAlts scr_ty res_ty (HsAAlts alts defAlt) = do
+  fcAlts <- mapM (elabHsAAlt scr_ty res_ty) alts
+  fcDefAlt <- elabHsDefAlt scr_ty res_ty defAlt
+  return $ FcAAlts fcAlts fcDefAlt
+elabHsAlts scr_ty res_ty (HsPAlts alts defAlt) = do 
   storeEqCs [scr_ty :~: mkRnIntTy]          -- The scrutinee can only be of integer literal type 
-  FcPAlts <$> mapM (elabHsPAlt res_ty) alts -- Elaborate all alternatives
+  fcAlts <- mapM (elabHsPAlt res_ty) alts
+  fcDefAlt <- elabHsDefAlt scr_ty res_ty defAlt
+  return $ FcPAlts fcAlts fcDefAlt -- Elaborate all alternatives
 
 -- | Elaborate an algebraic case alternative
 elabHsAAlt :: RnMonoTy {- Type of the scrutinee -}
@@ -543,9 +548,9 @@ elabHsPAlt res_ty (HsPAlt lit rhs) = do
 elabHsDefAlt :: RnMonoTy {- Type of the scrutinee -}
              -> RnMonoTy {- Result type         -}
              -> RnDefAlt {- Default alternative -}
-             -> GenM FcDefAlt
+             -> GenM FcOptDefAlt
 elabHsDefAlt scr_ty res_ty (HsDefBAlt x rhs) = do
-  (rhs_ty, fc_rhs) <- extendCtxTmM x scr_ty (elabTerm rhs) -- Bind variable and type check rhs
+  (rhs_ty, fc_rhs) <- extendCtxTmM x (monoTyToPolyTy scr_ty) (elabTerm rhs) -- Bind variable and type check rhs
   storeEqCs [res_ty :~: rhs_ty]                            -- All right hand sides should have the same type
   return (FcDefBAlt (rnTmVarToFcTmVar x) fc_rhs)
 elabHsDefAlt _      res_ty (HsDefUAlt   rhs) = do
@@ -754,6 +759,7 @@ elabClsDecl (ClsD rn_cs cls (a :| _) method method_ty) = do
                     FcOptTmCase (FcOptTmVar da) $
                       FcAAlts 
                         [FcAAlt (FcConPat dc xs) (FcOptTmVar (xs !! i))]
+                        FcDefEmpty -- place an empty default, since pattern mismatch cannot happen for dicts
     let proj = FcBind d fc_scheme fc_tm
 
     return (d :| scheme, proj) -- error "NOT IMPLEMENTED YET"
@@ -790,6 +796,7 @@ elabMethodSig method a cls sigma = do
                             FcAAlts
                               [FcAAlt (FcConPat dc xs)
                                 (fcOptDictApp (fcOptTmTyApp (FcOptTmVar (last xs)) (tail rn_bs)) (tail ds))]
+                              FcDefEmpty -- place an empty default, since pattern mismatch cannot happen for dicts
 
   let fc_val_bind = FcBind (rnTmVarToFcTmVar method) fc_method_ty fc_method_rhs
 

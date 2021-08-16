@@ -226,7 +226,12 @@ rnPAlt :: PsPAlt -> RnM RnPAlt
 rnPAlt (HsPAlt lit tm) = HsPAlt lit <$> rnTerm tm
 
 rnDefAlt :: PsDefAlt -> RnM RnDefAlt
-rnDefAlt = undefined
+rnDefAlt (HsDefBAlt x tm) = do
+  rnx <- rnTmVar x
+  rntm <- extendTmVars [(x,rnx)] (rnTerm tm)
+  return $ HsDefBAlt rnx rntm
+rnDefAlt (HsDefUAlt tm) = HsDefUAlt <$> rnTerm tm
+rnDefAlt HsDefEmpty = return HsDefEmpty
 
 -- | Rename a type constructor
 lookupTyCon :: PsTyCon -> RnM RnTyCon

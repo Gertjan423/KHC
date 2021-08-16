@@ -433,7 +433,7 @@ instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcPAlt a) FcTmVar w
   ftmvsOf (FcPAlt _ tm) = ftmvsOf tm
 
 instance ContainsFreeTmVars a FcTmVar => ContainsFreeTmVars (FcDefAlt a) FcTmVar where
-  ftmvsOf (FcDefBAlt _ tm) = ftmvsOf tm
+  ftmvsOf (FcDefBAlt x tm) = ftmvsOf tm \\ [x]
   ftmvsOf (FcDefUAlt   tm) = ftmvsOf tm
   ftmvsOf  FcDefEmpty      = []
 

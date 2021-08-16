@@ -1,7 +1,10 @@
--- * Simple test for using primitives
+-- * Fibonnaci implemented using primitives
 -- ----------------------------------------------------------------------------
 
-data Int = Int Int#
+fib :: Int# -> Int#
+  = \n. case n of
+    0 -> 1
+    1 -> 1
+    n' -> +# (fib (-# n' 1)) (fib (-# n' 2))
 
-case Int (-# (+# 2 4) 4) of
-  Int v -> Int v
+(fib 5)

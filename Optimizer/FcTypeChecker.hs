@@ -334,11 +334,47 @@ tcFcOptTmTyApp tm tys = do
 -- | Type check case alts
 tcFcOptAlts :: FcType -> FcOptAlts -> FcM (FcType, FcResAlts)
 tcFcOptAlts scr_ty alts = do 
-  (tys, alts_r) <- case alts of
-    (FcAAlts alts') -> second FcAAlts . unzip <$> mapM (tcFcOptAAlt scr_ty) alts'
-    (FcPAlts alts') -> second FcPAlts . unzip <$> mapM (tcFcOptPAlt scr_ty) alts'
-  ensureIdenticalTypes tys
+  (maybe_def_ty, tys, alts_r) <- case alts of
+    (FcAAlts alts' defAlt) -> do
+      (tys, alts_r') <- unzip <$> mapM (tcFcOptAAlt scr_ty) alts'
+      (maybe_def_ty, defalt_r) <- tcFcOptDefAlt scr_ty defAlt
+      return (maybe_def_ty, tys, FcAAlts alts_r' defalt_r)
+    (FcPAlts alts' defAlt) -> do
+      (tys, alts_r') <- unzip <$> mapM (tcFcOptPAlt scr_ty) alts'
+      (maybe_def_ty, defalt_r) <- tcFcOptDefAlt scr_ty defAlt
+      return (maybe_def_ty, tys, FcPAlts alts_r' defalt_r)
+  case maybe_def_ty of
+    Just def_ty -> ensureIdenticalTypes (def_ty:tys)
+    Nothing     -> ensureIdenticalTypes tys
   return (head tys, alts_r)
+
+tcFcOptAAlt :: FcType -> FcOptAAlt -> FcM (FcType, FcResAAlt)
+tcFcOptAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
+  Just (tc, tys) -> do
+    tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
+    (as, arg_tys, dc_tc) <- lookupDataConTyM dc
+    unless (dc_tc == tc) $
+      throwErrorM (text "tcOptAAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
+    let ty_subst = mconcat (zipWithExact (|->) as tys)   -- Create substitution
+    let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys  -- and fill in type variables in argument types
+    second (FcAAlt (FcConPat dc xs)) <$> extendCtxTmsM xs real_arg_tys (tcFcOptTerm rhs)
+  Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
+
+tcFcOptPAlt :: FcType -> FcOptPAlt -> FcM (FcType, FcResPAlt)
+tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
+  lit_ty <- lookupPrimLit lit
+  unless (scr_ty `eqFcTypes` lit_ty) $
+    throwErrorM (text "tcOptPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
+  second (FcPAlt lit) <$> tcFcOptTerm rhs
+
+tcFcOptDefAlt :: FcType -> FcOptDefAlt -> FcM (Maybe FcType, FcResDefAlt)
+tcFcOptDefAlt scr_ty (FcDefBAlt x tm) = do
+  (res_ty, tm') <- extendCtxTmM x scr_ty (tcFcOptTerm tm)
+  return (Just res_ty, FcDefBAlt x tm')
+tcFcOptDefAlt scr_ty (FcDefUAlt   tm) = do
+  (res_ty, tm') <- tcFcOptTerm tm
+  return (Just res_ty, FcDefUAlt tm')
+tcFcOptDefAlt _      FcDefEmpty       = return (Nothing, FcDefEmpty)
 
 -- | Type check a value binding.
 tcFcOptBind :: FcOptBind -> FcM (FcCtx, FcResBind)
@@ -416,25 +452,6 @@ tcFcOptTmApp t ts = do
   (rand_tys, binds, ats) <- tcFcOptTmAppTerms ts
   app_ty <- getAppResultTy (fval_bind_ty rator_bind) rand_tys
   return (app_ty, mkFcApp (rator_bind:binds) (FcRatorVar (fval_bind_var rator_bind)) ats)
-
-tcFcOptAAlt :: FcType -> FcOptAAlt -> FcM (FcType, FcResAAlt)
-tcFcOptAAlt scr_ty (FcAAlt (FcConPat dc xs) rhs) = case tyConAppMaybe scr_ty of
-  Just (tc, tys) -> do
-    tmVarsNotInFcCtxM xs    -- ensure variables not bound in current context
-    (as, arg_tys, dc_tc) <- lookupDataConTyM dc
-    unless (dc_tc == tc) $
-      throwErrorM (text "tcOptAAlt" <+> colon <+> text "The type of the scrutinee does not match that of the pattern")
-    let ty_subst = mconcat (zipWithExact (|->) as tys)   -- Create substitution
-    let real_arg_tys = map (substFcTyInTy ty_subst) arg_tys  -- and fill in type variables in argument types
-    second (FcAAlt (FcConPat dc xs)) <$> extendCtxTmsM xs real_arg_tys (tcFcOptTerm rhs)
-  Nothing -> throwErrorM (text "destructScrTy" <+> colon <+> text "Not a tycon application")
-
-tcFcOptPAlt :: FcType -> FcOptPAlt -> FcM (FcType, FcResPAlt)
-tcFcOptPAlt scr_ty (FcPAlt lit rhs) = do
-  lit_ty <- lookupPrimLit lit
-  unless (scr_ty `eqFcTypes` lit_ty) $
-    throwErrorM (text "tcOptPAlt" <+> colon <+> text "The type of the scrutinee does not match that of the literal")
-  second (FcPAlt lit) <$> tcFcOptTerm rhs
 
 
 -- | Determine the resulting type from the application
@@ -530,6 +547,7 @@ tcFcResApp (FcRatorCon dc) ats = do
   let dc_s = (SCon . unFcDC) dc
   return (ty_res, SCApp dc_s ats_s)
 
+
 -- | Type check a type abstraction term
 tcFcResTmTyAbs :: [FcTyVar] -> FcResTerm -> FcM (FcType, SExpr)
 tcFcResTmTyAbs as tm = do
@@ -539,10 +557,18 @@ tcFcResTmTyAbs as tm = do
 
 tcFcResAlts :: FcType -> FcResAlts -> FcM (FcType, SAlts)
 tcFcResAlts scr_ty alts = do
-  (tys, alts_s) <- case alts of
-    (FcAAlts alts') -> second SAAlts . unzip <$> mapM (tcFcResAAlt scr_ty) alts'
-    (FcPAlts alts') -> second SPAlts . unzip <$> mapM (tcFcResPAlt scr_ty) alts'
-  ensureIdenticalTypes tys
+  (maybe_def_ty, tys, alts_s) <- case alts of
+    (FcAAlts alts' defAlt) -> do
+      (tys, alts_s') <- unzip <$> mapM (tcFcResAAlt scr_ty) alts'
+      (maybe_def_ty, defalt_s) <- tcFcResDefAlt scr_ty defAlt
+      return (maybe_def_ty, tys, SAAlts alts_s' defalt_s)
+    (FcPAlts alts' defAlt) -> do
+      (tys, alts_s') <- unzip <$> mapM (tcFcResPAlt scr_ty) alts'
+      (maybe_def_ty, defalt_s) <- tcFcResDefAlt scr_ty defAlt
+      return (maybe_def_ty, tys, SPAlts alts_s' defalt_s)
+  case maybe_def_ty of
+    Just def_ty -> ensureIdenticalTypes (def_ty:tys)
+    Nothing     -> ensureIdenticalTypes tys
   return (head tys, alts_s)
 
 tcFcResAAlt :: FcType -> FcResAAlt -> FcM (FcType, SAAlt)
@@ -564,6 +590,15 @@ tcFcResPAlt scr_ty (FcPAlt lit rhs) = do
   unless (scr_ty `eqFcTypes` lit_ty) $
     throwBinTyErrorM "tcResPAlt" "scrutinee literal type mismatch" scr_ty lit_ty
   second (SPAlt lit) <$> tcFcResTerm rhs
+
+tcFcResDefAlt :: FcType -> FcResDefAlt -> FcM (Maybe FcType, SDefAlt)
+tcFcResDefAlt scr_ty (FcDefBAlt x tm) = do
+  (res_ty, e) <- extendCtxTmM x scr_ty (tcFcResTerm tm)
+  return (Just res_ty, SDefBound (rnFcTmVarToSVar x) e)
+tcFcResDefAlt scr_ty (FcDefUAlt   tm) = do
+  (res_ty, e) <- tcFcResTerm tm
+  return (Just res_ty, SDefUnbound e)
+tcFcResDefAlt _      FcDefEmpty       = return (Nothing, SDefUnbound (SCApp mkStgPatternMatchErrorCon []))
 
 tcFcResBind :: [FcResBind] -> FcM (FcCtx,[SBind])
 tcFcResBind binds = do

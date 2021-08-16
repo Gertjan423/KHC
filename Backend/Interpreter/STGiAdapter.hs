@@ -5,7 +5,7 @@
 
 module Backend.Interpreter.STGiAdapter (stgToStg,runSTGI) where
 
-import Data.Map (Map, singleton)
+import Data.Map (singleton)
 import Data.List.NonEmpty (fromList)
 import Data.Text (pack)
 
@@ -51,8 +51,12 @@ popToPop (PrimIntOp PIntSub) = STGI.Sub
 popToPop (PrimIntOp PIntMul) = STGI.Mul
 
 altsToAlts :: SAlts -> STGI.Alts
-altsToAlts (SAAlts alts) = STGI.Alts (STGI.AlgebraicAlts $ fromList (map aaltToAalt alts)) defAltError
-altsToAlts (SPAlts alts) = STGI.Alts (STGI.PrimitiveAlts $ fromList (map paltToPalt alts)) defAltError
+altsToAlts (SAAlts alts defAlt) = case map aaltToAalt alts of
+  [] -> STGI.Alts STGI.NoNonDefaultAlts (daltToDalt defAlt)
+  alts' -> STGI.Alts (STGI.AlgebraicAlts $ fromList alts') (daltToDalt defAlt)
+altsToAlts (SPAlts alts defAlt) = case map paltToPalt alts of
+  [] -> STGI.Alts STGI.NoNonDefaultAlts (daltToDalt defAlt)
+  alts' -> STGI.Alts (STGI.PrimitiveAlts $ fromList alts') (daltToDalt defAlt)
 
 aaltToAalt :: SAAlt -> STGI.AlgebraicAlt
 aaltToAalt (SAAlt c xs e) = STGI.AlgebraicAlt (conToCon c) (map varToVar xs) (exprToExpr e)
@@ -60,8 +64,9 @@ aaltToAalt (SAAlt c xs e) = STGI.AlgebraicAlt (conToCon c) (map varToVar xs) (ex
 paltToPalt :: SPAlt -> STGI.PrimitiveAlt
 paltToPalt (SPAlt l e) = STGI.PrimitiveAlt (litToLit l) (exprToExpr e)
 
-defAltError :: STGI.DefaultAlt
-defAltError = STGI.DefaultNotBound $ STGI.AppC (STGI.Constr $ pack "UnmatchedPatternError") []
+daltToDalt :: SDefAlt -> STGI.DefaultAlt
+daltToDalt (SDefBound x e) = STGI.DefaultBound (varToVar x) (exprToExpr e)
+daltToDalt (SDefUnbound e) = STGI.DefaultNotBound (exprToExpr e)
 
 exprToExpr :: SExpr -> STGI.Expr
 exprToExpr (SLet binds e) = STGI.Let STGI.Recursive (bindsToBinds binds) (exprToExpr e)

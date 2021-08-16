@@ -16,6 +16,7 @@ module Backend.STGTypes where
 import Utils.Var
 import Utils.PrettyPrint
 import Utils.Prim
+import Utils.Unique (stgBoxedIntConUnique, stgPatternMatchErrorUnique)
 
 -- * Type Declarations
 -- ** Programs
@@ -33,6 +34,18 @@ newtype SCon = SCon {scon_name :: Name}
 
 instance Symable SCon where
   symOf = symOf . scon_name
+
+mkStgBoxedIntCon :: SCon
+mkStgBoxedIntCon = SCon stgBoxedIntConName
+
+stgBoxedIntConName :: Name
+stgBoxedIntConName = mkName (mkSym "MkInt") stgBoxedIntConUnique
+
+mkStgPatternMatchErrorCon :: SCon
+mkStgPatternMatchErrorCon = SCon stgPatternMatchErrorConName
+
+stgPatternMatchErrorConName :: Name
+stgPatternMatchErrorConName = mkName (mkSym "PatternMatchError") stgPatternMatchErrorUnique
 
 -- | Variable binding list
 -- A list of bindings containing at least one element.
@@ -66,15 +79,19 @@ type SAtoms = [SAtom]
 
 -- | Case alternatives
 data SAlts
-  = SAAlts [SAAlt] --SDefAlt -- ^ ADT alternatives 
-  | SPAlts [SPAlt] --SDefAlt -- ^ Primitive alternatives
+  = SAAlts [SAAlt] SDefAlt -- ^ ADT alternatives 
+  | SPAlts [SPAlt] SDefAlt -- ^ Primitive alternatives
 
 -- Algebraic alternative (over ADT)
 data SAAlt   = SAAlt SCon [SVar] SExpr
 -- Primitive alternative (over primitive literals)
 data SPAlt   = SPAlt PrimLit SExpr
 -- Default alternative
-data SDefAlt = SDefAlt [SVar] SExpr
+data SDefAlt = SDefBound SVar SExpr
+             | SDefUnbound SExpr
+
+mkStgErrorDefAlt :: SDefAlt
+mkStgErrorDefAlt = SDefUnbound (SCApp mkStgPatternMatchErrorCon [])
 
 -- ** Lambda form
 -- ----------------------------------------------------------------------------
@@ -131,8 +148,8 @@ instance PrettyPrint SBind where
   needsParens = const False 
 
 instance PrettyPrint SAlts where
-  ppr (SAAlts as) = vcat $ map (terminate semi . ppr) as -- ++ [ppr d]
-  ppr (SPAlts as) = vcat $ map (terminate semi . ppr) as -- ++ [ppr d]
+  ppr (SAAlts as d) = vcat $ map (terminate semi . ppr) as ++ [ppr d]
+  ppr (SPAlts as d) = vcat $ map (terminate semi . ppr) as ++ [ppr d]
   needsParens = const False
 
 instance PrettyPrint SAAlt where
@@ -144,11 +161,8 @@ instance PrettyPrint SPAlt where
   needsParens = const False
 
 instance PrettyPrint SDefAlt where
-  ppr (SDefAlt vs e) = pv <+> text "->" <+> ppr e
-    where 
-      pv = case vs of
-        []  -> colorDoc green (text "default")
-        _ -> hcatmap ppr vs
+  ppr (SDefBound v e) = ppr v <+> text "->" <+> ppr e
+  ppr (SDefUnbound e) = colorDoc green (text "default") <+> text "->" <+> ppr e
   needsParens = const False
 
 instance {-# OVERLAPS #-} PrettyPrint SAtoms where
