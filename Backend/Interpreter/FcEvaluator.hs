@@ -14,6 +14,7 @@ import Utils.SnocList
 import Utils.Substitution
 import Utils.Unique
 import Utils.Var
+import Utils.Prim
 
 import Data.Maybe
 import Debug.Trace
@@ -34,6 +35,11 @@ fcEvalTmStep (FcTmApp tm1 tm2) = case tm1 of
   FcTmAbs x ty tm3 -> do
     tm2' <- freshenFcVars tm2
     return $ Just $ substFcTmInTm (x |-> tm2') tm3
+  FcTmApp (FcTmPrim (PrimOpTm op)) tm11 -> fcEvalTm tm11 >>= \case 
+    (FcTmPrim (PrimLitTm lit1)) -> fcEvalTm tm2 >>= \case
+      (FcTmPrim (PrimLitTm lit2)) -> return $ fcEvalPrimOp op lit1 lit2
+      _ -> error "Second argument of primitive operation application does not reduce to primitive value"
+    _ -> error "First argument of primitive operation application does not reduce to primitive value"
   _                -> fcEvalTmStep tm1 >>= \case
     Nothing   -> return Nothing
     Just tm1' -> return $ Just $ FcTmApp tm1' tm2
@@ -59,6 +65,7 @@ fcEvalTmStep (FcTmCase scr alts) = do
 fcEvalTmStep (FcTmVar x) = lookupVbM x >>= \case
   Just (tm, ty) -> return $ Just tm
   Nothing -> error "Encountered unbound variable during execution"
+fcEvalTmStep (FcTmPrim x)      = return Nothing
 fcEvalTmStep (FcTmAbs _ _ _)   = return Nothing
 fcEvalTmStep (FcTmTyAbs _ _)   = return Nothing
 fcEvalTmStep (FcTmDataCon _)   = return Nothing
@@ -67,6 +74,14 @@ fcEvalTm :: FcTerm -> FcEM (FcTerm)
 fcEvalTm tm = fcEvalTmStep tm >>= \case
   Nothing    -> return tm
   (Just tm') -> fcEvalTm tm'
+
+fcEvalPrimOp :: PrimOp -> PrimLit -> PrimLit -> Maybe (FcTerm)
+fcEvalPrimOp (PrimIntOp op) (PInt x) (PInt y) = case op of
+  PIntAdd -> Just (FcTmPrim (PrimLitTm (PInt (x + y))))
+  PIntSub -> Just (FcTmPrim (PrimLitTm (PInt (x - y))))
+  PIntMul -> Just (FcTmPrim (PrimLitTm (PInt (x * y))))
+fcEvalPrimOp _ _ _ = Nothing
+
 
 getTmConAndArgs :: FcTerm -> Maybe (FcDataCon, [FcTerm])
 getTmConAndArgs = flip getTmConAndArgs' $ []
@@ -123,7 +138,7 @@ lookupVbM a = do
 lookupVb :: FcTmVar -> Ctx -> Maybe (FcTerm, FcType)
 lookupVb _ [] = Nothing
 lookupVb a (x:xs)
-  | a == fval_bind_var x = Just (fval_bind_tm x, fval_bind_ty x)
+  | a == fval_bind_var x = Just (fval_bind_rhs x, fval_bind_ty x)
   | otherwise            = lookupVb a xs
 
 -- * Invoke the complete System F evaluator

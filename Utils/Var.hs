@@ -14,8 +14,12 @@ module Utils.Var
 , FcTyVar, FcTmVar, DictVar
   -- * Convert a source renamed variable to a target variable of the same kind
 , rnTmVarToFcTmVar, rnTyVarToFcTyVar
+  -- * STG Variables and translation functions
+, SVar, rnFcTmVarToSVar
+  -- * STG special variables
+, mkStgMainBindVar, stgMainBindName
   -- * Generating fresh variables
-, freshRnTmVar, freshRnTyVar, freshFcTmVar, freshFcTyVar, freshDictVar
+, freshRnTmVar, freshRnTyVar, freshFcTmVar, freshFcTyVar, freshDictVar, freshSVar
 ) where
 
 import Utils.Unique
@@ -173,6 +177,38 @@ rnTyVarToFcTyVar _ {- PsTyVar {} -}  = error "We need GHC 8.0"
 rnTmVarToFcTmVar :: HsTmVar Name -> FcTmVar
 rnTmVarToFcTmVar (HsTmVar name) = FcTmVar name
 
+-- * STG Variables
+-- ------------------------------------------------------------------------------
+
+-- | Variable, and list of variables
+newtype SVar = SVar {svar_name :: Name}
+type SVars = [SVar]
+
+rnFcTmVarToSVar :: FcTmVar -> SVar
+rnFcTmVarToSVar (FcTmVar name) = SVar name
+
+-- | Variable to which main program expression is bound
+mkStgMainBindVar :: SVar
+mkStgMainBindVar = SVar stgMainBindName
+
+-- | Name to which main program expression is bound
+stgMainBindName :: Name
+stgMainBindName = mkName (mkSym "main") stgMainBindUnique
+
+-- | Check if the variable refers to the main binding
+isMainBind :: SVar -> Bool
+isMainBind x = stgMainBindName == (svar_name x)
+
+instance PrettyPrint SVar where
+  ppr x 
+    | isMainBind x = text "main"
+    | otherwise    = ppr $ svar_name x
+  needsParens = const False
+
+instance {-# OVERLAPS #-} PrettyPrint SVars where
+  ppr = braces . fsep . punctuate comma . map ppr
+  needsParens = const False
+
 -- * The Symable Class: Everything we can get a Sym out of
 -- ------------------------------------------------------------------------------
 
@@ -259,3 +295,5 @@ freshFcTyVar k = getUniqueM >>= return . flip FcTyVar k . MkName (MkSym "t")
 freshDictVar :: MonadUnique m => m DictVar
 freshDictVar = getUniqueM >>= return . FcTmVar . MkName (MkSym "d")
 
+freshSVar :: MonadUnique m => m SVar
+freshSVar = getUniqueM >>= return . SVar . MkName (MkSym "x")

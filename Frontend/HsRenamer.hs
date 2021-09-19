@@ -146,9 +146,9 @@ rnTyPat = liftM (second nub) . go
 
 -- | Rename a monotype
 rnMonoTy :: PsMonoTy -> RnM RnMonoTy
-rnMonoTy (TyCon tc)      = TyCon <$> lookupTyCon tc
-rnMonoTy (TyApp ty1 ty2) = TyApp <$> rnMonoTy ty1 <*> rnMonoTy ty2
-rnMonoTy (TyVar psa)     = TyVar <$> lookupTyVarM psa
+rnMonoTy (TyCon  tc)      = TyCon <$> lookupTyCon tc
+rnMonoTy (TyApp  ty1 ty2) = TyApp <$> rnMonoTy ty1 <*> rnMonoTy ty2
+rnMonoTy (TyVar  psa)     = TyVar <$> lookupTyVarM psa
 
 -- | Rename a qualified type
 rnQualTy :: PsQualTy -> RnM RnQualTy
@@ -194,6 +194,7 @@ rnTmVar psx = mkRnTmVar <$> rnSym (symOf psx)
 rnTerm :: PsTerm -> RnM RnTerm
 rnTerm (TmVar x)          = TmVar <$> lookupTmVarM x
 rnTerm (TmCon dc)         = TmCon <$> lookupDataCon dc
+rnTerm (TmPrim x)         = return (TmPrim x)
 rnTerm (TmAbs psx pstm)   = do
   rnx  <- rnTmVar psx
   rntm <- extendCtxTmM psx rnx (rnTerm pstm)
@@ -204,16 +205,33 @@ rnTerm (TmLet x tm1 tm2)  = do
   rntm1 <- extendCtxTmM x rnx (rnTerm tm1)
   rntm2 <- extendCtxTmM x rnx (rnTerm tm2)
   return (TmLet rnx rntm1 rntm2)
-rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> mapM rnAlt alts
+rnTerm (TmCase scr alts)  = TmCase <$> rnTerm scr <*> rnAlts alts
 
--- | Rename a case alternative
-rnAlt :: PsAlt -> RnM RnAlt
-rnAlt (HsAlt (HsPat dc xs) tm) = do
+-- | Rename case alternatives
+rnAlts :: PsAlts -> RnM RnAlts
+rnAlts (HsAAlts alts def) = HsAAlts <$> mapM rnAAlt alts <*> rnDefAlt def
+rnAlts (HsPAlts alts def) = HsPAlts <$> mapM rnPAlt alts <*> rnDefAlt def
+
+-- | Rename an algebraic case alternative
+rnAAlt :: PsAAlt -> RnM RnAAlt
+rnAAlt (HsAAlt (HsPat dc xs) tm) = do
   rndc <- lookupDataCon dc
   rnxs <- mapM rnTmVar xs
   let binds = zipExact xs rnxs
   rntm <- extendTmVars binds (rnTerm tm)
-  return (HsAlt (HsPat rndc rnxs) rntm)
+  return (HsAAlt (HsPat rndc rnxs) rntm)
+
+-- | Rename a primitive case alternative
+rnPAlt :: PsPAlt -> RnM RnPAlt
+rnPAlt (HsPAlt lit tm) = HsPAlt lit <$> rnTerm tm
+
+rnDefAlt :: PsDefAlt -> RnM RnDefAlt
+rnDefAlt (HsDefBAlt x tm) = do
+  rnx <- rnTmVar x
+  rntm <- extendTmVars [(x,rnx)] (rnTerm tm)
+  return $ HsDefBAlt rnx rntm
+rnDefAlt (HsDefUAlt tm) = HsDefUAlt <$> rnTerm tm
+rnDefAlt HsDefEmpty = return HsDefEmpty
 
 -- | Rename a type constructor
 lookupTyCon :: PsTyCon -> RnM RnTyCon
@@ -389,7 +407,10 @@ hsRename us pgm = runWriter
     rn_init_ctx     = mempty
     rn_init_gbl_env = RnEnv { rn_env_cls_info = mempty
                             , rn_env_dc_info  = mempty
-                            , rn_env_tc_info  = extendAssocList psArrowTyCon arrowTyConInfo mempty
+                            -- integer and arrow type constructors are statically added to the global renaming environment
+                            , rn_env_tc_info  = extendAssocList psIntTyCon intTyConInfo 
+                                                  (extendAssocList psArrowTyCon arrowTyConInfo 
+                                                    mempty)
                             }
 
 -- | Throw an error

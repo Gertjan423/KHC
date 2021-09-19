@@ -7,6 +7,7 @@ import Optimizer.FcTypes
 
 import Utils.Var
 import Utils.Kind
+import Utils.Prim
 import Utils.Annotated
 import Utils.Unique
 import Utils.FreeVars
@@ -109,32 +110,72 @@ data RnClsInfo
 
 data Term a = TmVar (HsTmVar a)                   -- ^ Term variable
             | TmCon (HsDataCon a)                 -- ^ Data constructor
+            | TmPrim PrimTm                       -- ^ Primitive term
             | TmAbs (HsTmVar a) (Term a)          -- ^ Lambda x . Term
             | TmApp (Term a) (Term a)             -- ^ Term application
             | TmLet (HsTmVar a) (Term a) (Term a) -- ^ Letrec var = term in term
-            | TmCase (Term a) [HsAlt a]           -- ^ case e of { ... }
+            | TmCase (Term a) (HsAlts a)          -- ^ case e of { ... }
 
 -- | Parsed/renamed term
 type PsTerm = Term Sym
 type RnTerm = Term Name
 
-data HsAlt a = HsAlt (HsPat a) (Term a)
+-- | Case alternatives
+data HsAlts a 
+  = HsAAlts [HsAAlt a] (HsDefAlt a)
+  | HsPAlts [HsPAlt a] (HsDefAlt a)
 
-type PsAlt = HsAlt Sym
-type RnAlt = HsAlt Name
+type PsAlts = HsAlts Sym
+type RnAlts = HsAlts Name
 
+-- | Algebraic alternative (matching on data constructor pattern)
+data HsAAlt a = HsAAlt (HsPat a) (Term a)
+
+type PsAAlt = HsAAlt Sym
+type RnAAlt = HsAAlt Name
+
+-- | Primitive alternative (matching on primitive literals)
+data HsPAlt a = HsPAlt PrimLit   (Term a)
+
+type PsPAlt = HsPAlt Sym
+type RnPAlt = HsPAlt Name
+
+-- | Data constructor pattern
 data HsPat a = HsPat (HsDataCon a) [HsTmVar a]
 
 type PsPat = HsPat Sym
 type RnPat = HsPat Name
 
-instance (Symable a, PrettyPrint a) => PrettyPrint (HsAlt a) where
-  ppr (HsAlt pat tm) = ppr pat <+> arrow <+> ppr tm
+-- | Default alternative
+data HsDefAlt a = HsDefBAlt (HsTmVar a) (Term a)   -- ^ with bound variable
+                | HsDefUAlt (Term a)               -- ^ without bound variable
+                | HsDefEmpty                       -- ^ empty default, error at runtime
+
+type PsDefAlt = HsDefAlt Sym
+type RnDefAlt = HsDefAlt Name
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsAlts a) where
+  ppr (HsAAlts alts def) = vcat $ map ppr alts ++ [ppr def]
+  ppr (HsPAlts alts def) = vcat $ map ppr alts ++ [ppr def]
+  needsParens _      = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsAAlt a) where
+  ppr (HsAAlt pat tm) = ppr pat <+> arrow <+> ppr tm
+  needsParens _      = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsPAlt a) where
+  ppr (HsPAlt lit tm) = ppr lit <+> arrow <+> ppr tm
   needsParens _      = True
 
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsPat a) where
   ppr (HsPat dc xs) = ppr dc <+> hsep (map ppr xs)
   needsParens _     = True
+
+instance (Symable a, PrettyPrint a) => PrettyPrint (HsDefAlt a) where
+  ppr (HsDefBAlt x tm) = ppr x            <+> arrow <+> ppr tm
+  ppr (HsDefUAlt   tm) = (text "default") <+> arrow <+> ppr tm
+  ppr (HsDefEmpty    ) = (text "default") <+> arrow <+> (text "undefined")
+  needsParens _        = True
 
 -- * Type Patterns
 -- ------------------------------------------------------------------------------
@@ -186,6 +227,27 @@ data PolyTy a = PQual (QualTy a)
 -- | Parsed/renamed polytype
 type PsPolyTy = PolyTy Sym
 type RnPolyTy = PolyTy Name
+
+intTyConSym :: Sym
+intTyConSym = mkSym "Int#"
+
+intTyConName :: Name
+intTyConName = mkName intTyConSym intTyConUnique
+
+psIntTyCon :: PsTyCon
+psIntTyCon = HsTC intTyConSym
+
+rnIntTyCon :: RnTyCon
+rnIntTyCon = HsTC intTyConName
+
+mkRnIntTy :: RnMonoTy
+mkRnIntTy = TyCon rnIntTyCon
+
+intTyConInfo :: HsTyConInfo
+intTyConInfo = HsTCInfo rnIntTyCon [] fcIntTyCon
+
+mkRnIntBinopTy :: RnMonoTy
+mkRnIntBinopTy = mkRnArrowTy [mkRnIntTy, mkRnIntTy] mkRnIntTy
 
 arrowTyConSym :: Sym
 arrowTyConSym = mkSym "(->)"
@@ -548,7 +610,8 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Term a) where
     | otherwise          = pprPar tm1 <+> pprPar tm2
   ppr (TmLet v tm1 tm2)  = colorDoc yellow (text "let") <+> ppr v <+> equals <+> ppr tm1
                         $$ colorDoc yellow (text "in")  <+> ppr tm2
-  ppr (TmCase scr alts)  = hang (text "case" <+> ppr scr <+> text "of") 2 (vcat $ map ppr alts)
+  ppr (TmCase scr alts)  = hang (text "case" <+> ppr scr <+> text "of") 2 (ppr alts)
+  ppr (TmPrim tm)        = ppr tm
 
   needsParens (TmAbs  {}) = True
   needsParens (TmApp  {}) = True
@@ -556,6 +619,7 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (Term a) where
   needsParens (TmCase {}) = True
   needsParens (TmVar  {}) = False
   needsParens (TmCon  {}) = False
+  needsParens (TmPrim {}) = False
 
 -- | Pretty print type patterns
 instance (Symable a, PrettyPrint a) => PrettyPrint (HsTyPat a) where
@@ -577,9 +641,9 @@ instance (Symable a, PrettyPrint a) => PrettyPrint (MonoTy a) where
     | otherwise       = pprPar ty1 <+> pprPar ty2
   ppr (TyVar var)     = ppr var
 
-  needsParens (TyCon {}) = False
-  needsParens (TyApp {}) = True
-  needsParens (TyVar {}) = False
+  needsParens (TyCon  {}) = False
+  needsParens (TyApp  {}) = True
+  needsParens (TyVar  {}) = False
 
 -- | Pretty print qualified types
 instance (Symable a, PrettyPrint a) => PrettyPrint (QualTy a) where

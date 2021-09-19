@@ -5,6 +5,7 @@ module Frontend.HsParser (hsParse) where
 import Frontend.HsTypes
 import Utils.Kind (Kind(..))
 import Utils.Var (Sym, mkSym, PsTyVar, mkPsTyVar, PsTmVar, mkPsTmVar)
+import Utils.Prim
 import Utils.Annotated (Ann((:|)))
 
 -- Utilities
@@ -76,6 +77,10 @@ lowerIdent = identifier lowerChar
 upperIdent :: PsM Sym
 upperIdent = identifier upperChar
 
+-- | Parse a primitive symbol (ending in a hash)
+primSymbol :: String -> PsM ()
+primSymbol s = symbol s <* hash
+
 -- | Parse a specific string
 symbol :: String -> PsM ()
 symbol s = ask >>= \(SC sc') -> L.symbol sc' s $> ()
@@ -88,9 +93,29 @@ parens = between (symbol "(") (symbol ")")
 dot :: PsM ()
 dot = symbol "."
 
+-- | Parse a hash
+hash :: PsM ()
+hash = symbol "#"
+
+-- | Parse an underscore
+underscore :: PsM ()
+underscore = symbol "_"
+
+-- | Parse an arrow
+arrow :: PsM ()
+arrow = symbol "->"
+
 -- | Parse a comma-separated list of things
 commaSep :: PsM a -> PsM [a]
 commaSep = (`sepBy` symbol ",")
+
+-- | Parse an unsigned integer
+integer :: PsM Int
+integer = lexeme L.decimal
+
+-- | Parse an (optionally signed) integer
+signedInteger :: PsM Int
+signedInteger = L.signed sc integer
 
 -- | The Monoidal applicative operator
 infixl 5 <&>
@@ -177,6 +202,9 @@ pClass = Class <$> upperIdent <?> "a class name"
 pTyCon :: PsM PsTyCon
 pTyCon = HsTC <$> upperIdent <?> "a type constructor"
 
+pTyPrim :: PsM PsTyCon
+pTyPrim = psIntTyCon <$ primSymbol "Int"
+
 -- | Parse a data constructor
 pDataCon :: PsM PsDataCon
 pDataCon = HsDC <$> upperIdent <?> "a data constructor"
@@ -197,7 +225,10 @@ pQualTy =
 
 -- | Parse a primitive monotype
 pPrimTy :: PsM PsMonoTy
-pPrimTy = parens pMonoTy <|> TyCon <$> pTyCon <|> TyVar <$> pTyVar
+pPrimTy = parens pMonoTy 
+       <|> TyCon  <$> pTyPrim
+       <|> TyCon  <$> pTyCon 
+       <|> TyVar  <$> pTyVar
 
 -- | Parse a type pattern
 pPrimTyPat :: PsM PsTyPat
@@ -238,8 +269,9 @@ pTyVarWithKind = liftA2 (:|) pTyVar (symbol "::" *> pKind)
 
 -- | Parse a term (highest priority)
 pPrimTerm :: PsM PsTerm
-pPrimTerm  =  TmVar <$> pTmVar
-          <|> TmCon <$> pDataCon
+pPrimTerm  =  TmVar  <$> pTmVar
+          <|> TmPrim <$> pPrimTm
+          <|> TmCon  <$> pDataCon
           <|> parens pTerm
 
 -- | Parse a term (medium priority)
@@ -263,12 +295,43 @@ pTerm  =  pAppTerm
           <$  symbol "case"
           <*> pTerm
           <*  symbol "of"
-          <*> some (indent pAlt)
+          <*> pAlts
 
 -- | Parse a pattern
 pPat :: PsM PsPat
 pPat = HsPat <$> pDataCon <*> many pTmVar
 
--- | Parse a case alternative
-pAlt :: PsM PsAlt
-pAlt = HsAlt <$> pPat <* symbol "->" <*> pTerm
+-- | Parse a series of alternatives
+pAlts :: PsM PsAlts
+pAlts =  try (HsAAlts <$> some (indent pAAlt) <*> pDefAlt)
+     <|>      HsPAlts <$> some (indent pPAlt) <*> pDefAlt
+
+-- | Parse an algebraic alternative
+pAAlt :: PsM PsAAlt
+pAAlt = HsAAlt <$> pPat <* arrow <*> pTerm
+
+-- | Parse a primitive alternative
+pPAlt :: PsM PsPAlt
+pPAlt = HsPAlt <$> pPrimLit <* arrow <*> pTerm
+
+pDefAlt :: PsM PsDefAlt
+pDefAlt =  HsDefBAlt <$> pTmVar <* arrow <*> pTerm
+       <|> underscore *> arrow *> (HsDefUAlt <$> pTerm)
+       <|> return HsDefEmpty
+
+-- | Parse a primitive term
+pPrimTm :: PsM PrimTm
+pPrimTm =  try (PrimLitTm <$> pPrimLit)
+       <|> PrimOpTm  <$> pPrimOp 
+
+pPrimOp :: PsM PrimOp
+pPrimOp = PrimIntOp <$> pPrimIntOp
+
+pPrimIntOp :: PsM PrimIntOp
+pPrimIntOp =  PIntAdd <$ primSymbol "+"
+          <|> PIntSub <$ primSymbol "-"
+          <|> PIntMul <$ primSymbol "*"
+          -- <|> PIntEq  <$ primSymbol "=="
+
+pPrimLit :: PsM PrimLit
+pPrimLit = PInt <$> signedInteger
